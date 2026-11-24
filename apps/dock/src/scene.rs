@@ -49,7 +49,11 @@ pub struct Theme {
     rim: [u8; 4],
     separator: Color,
     shadow: Color,
+    shadow_blur: f32,
+    shadow_offset: f32,
     indicator: Color,
+    indicator_size: f32,
+    corner_radius_ratio: f32,
 }
 
 /// Aurora: green, violet and pink lights over a night-blue tint.
@@ -59,17 +63,17 @@ const AURORA: [Color; 3] = [
     rgba(246, 96, 182, 132),
 ];
 
-/// Glass tint and backdrop strength. The rim, sheen, separator, shadow and
-/// dot stay on the Frosted/light values until the visual pass tunes them.
+/// Glass tint and backdrop strength, with a slight cool cast so light glass
+/// reads cleanly over both warm and cool wallpapers.
 fn glass_fill(transparency: u8, blur: u8, glass: bool, translucent: bool) -> (Color, f32) {
     if glass {
         (
-            rgba(255, 255, 255, glass_tint_alpha(transparency)),
+            rgba(250, 251, 255, glass_tint_alpha(transparency)),
             glass_backdrop_opacity(blur),
         )
     } else if translucent {
         (
-            rgba(255, 255, 255, glass_unblurred_tint_alpha(transparency)),
+            rgba(250, 251, 255, glass_unblurred_tint_alpha(transparency)),
             0.0,
         )
     } else {
@@ -77,14 +81,15 @@ fn glass_fill(transparency: u8, blur: u8, glass: bool, translucent: bool) -> (Co
     }
 }
 
-/// A see-through bar tint, 60 more alpha than the dock and never above 235.
-/// A solid fallback stays opaque.
+/// A see-through bar tint, slightly denser than the dock with a 110 floor so
+/// the clock and status items stay readable over any wallpaper. A solid
+/// fallback stays opaque.
 fn denser_bar_tint(tint: Color) -> Color {
     if tint.A == 255 {
         tint
     } else {
         Color {
-            A: tint.A.saturating_add(60).min(235),
+            A: tint.A.saturating_add(30).clamp(110, 235),
             ..tint
         }
     }
@@ -119,13 +124,58 @@ impl Theme {
         };
         let (sheen, rim) = match material {
             Material::Standard | Material::Aurora => (38, [150, 40, 30, 105]),
-            Material::Frosted | Material::Glass => (70, [210, 70, 55, 150]),
+            Material::Frosted => (70, [210, 70, 55, 150]),
             // All the light is on the edge, like a lens.
             Material::Clear => (56, [235, 80, 60, 190]),
+            Material::Glass => (40, [170, 90, 70, 130]),
         };
         let panel_tint = match material {
             Material::Clear => pick(rgba(24, 24, 28, 150), tint),
-            Material::Standard | Material::Frosted | Material::Aurora | Material::Glass => tint,
+            Material::Glass => Color {
+                A: tint.A.max(150),
+                ..tint
+            },
+            Material::Standard | Material::Frosted | Material::Aurora => tint,
+        };
+        // Light hairline equivalent to rgba(255,255,255,110) over rgba(0,0,0,28),
+        // readable over both dark and bright wallpapers.
+        let separator = match material {
+            Material::Glass if glass || translucent => rgba(223, 223, 223, 126),
+            Material::Glass => rgba(0, 0, 0, 42),
+            Material::Standard | Material::Frosted | Material::Clear | Material::Aurora => {
+                if light {
+                    rgba(0, 0, 0, 56)
+                } else {
+                    rgba(255, 255, 255, 64)
+                }
+            }
+        };
+        let (shadow, shadow_blur, shadow_offset) = match material {
+            Material::Glass => (rgba(0, 0, 0, 40), 30.0, 6.0),
+            Material::Standard | Material::Frosted | Material::Clear | Material::Aurora => (
+                if light {
+                    rgba(0, 0, 0, 56)
+                } else {
+                    rgba(0, 0, 0, 96)
+                },
+                22.0,
+                8.0,
+            ),
+        };
+        let (indicator, indicator_size) = match material {
+            Material::Glass => (rgba(0, 0, 0, 140), 3.5),
+            Material::Standard | Material::Frosted | Material::Clear | Material::Aurora => (
+                if light {
+                    rgba(0, 0, 0, 170)
+                } else {
+                    rgba(255, 255, 255, 215)
+                },
+                4.0,
+            ),
+        };
+        let corner_radius_ratio = match material {
+            Material::Glass => 0.32,
+            Material::Standard | Material::Frosted | Material::Clear | Material::Aurora => 0.36,
         };
         Self {
             light,
@@ -136,21 +186,13 @@ impl Theme {
             panel_tint,
             sheen,
             rim,
-            separator: if light {
-                rgba(0, 0, 0, 56)
-            } else {
-                rgba(255, 255, 255, 64)
-            },
-            shadow: if light {
-                rgba(0, 0, 0, 56)
-            } else {
-                rgba(0, 0, 0, 96)
-            },
-            indicator: if light {
-                rgba(0, 0, 0, 170)
-            } else {
-                rgba(255, 255, 255, 215)
-            },
+            separator,
+            shadow,
+            shadow_blur,
+            shadow_offset,
+            indicator,
+            indicator_size,
+            corner_radius_ratio,
         }
     }
 
@@ -639,7 +681,7 @@ impl Scene {
             frame,
             ..
         } = *input;
-        let radius = layout.height * 0.36;
+        let radius = layout.height * theme.corner_radius_ratio;
 
         let root = c.CreateContainerVisual()?;
         root.SetRelativeSizeAdjustment(v2(1.0, 1.0))?;
@@ -650,8 +692,8 @@ impl Scene {
         mask.SetSource(&gfx.rounded_mask(radius)?)?;
         mask.SetInsets(radius.ceil() + 1.0)?;
         shadow.SetMask(&mask)?;
-        shadow.SetBlurRadius(22.0 * scale)?;
-        shadow.SetOffset(v3(0.0, 8.0 * scale))?;
+        shadow.SetBlurRadius(theme.shadow_blur * scale)?;
+        shadow.SetOffset(v3(0.0, theme.shadow_offset * scale))?;
         shadow.SetColor(theme.shadow)?;
         let shadow_host = c.CreateSpriteVisual()?;
         shadow_host.SetShadow(&shadow)?;
@@ -670,7 +712,7 @@ impl Scene {
         // Children are placed in window coordinates through `frame`.
         let content = c.CreateContainerVisual()?;
         let children = content.Children()?;
-        let indicator_size = (4.0 * scale).round();
+        let indicator_size = (theme.indicator_size * scale).round();
         let dot = c.CreateEllipseGeometry()?;
         dot.SetCenter(v2(indicator_size / 2.0, indicator_size / 2.0))?;
         dot.SetRadius(v2(indicator_size / 2.0, indicator_size / 2.0))?;
@@ -998,5 +1040,81 @@ impl Scene {
         };
         label.visual.SetOffset(v3(left.round(), top.round()))?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod theme_tests {
+    use super::*;
+
+    fn glass_look(glass: bool, translucent: bool, transparency: u8, blur: u8) -> Look {
+        Look {
+            material: Material::Glass,
+            light: true,
+            glass,
+            translucent,
+            transparency,
+            blur,
+        }
+    }
+
+    #[test]
+    fn glass_theme_uses_tuned_light_glass_visuals_and_panel_floor() {
+        let default = Theme::new(glass_look(true, true, 65, 100));
+        assert_eq!(default.tint, rgba(250, 251, 255, 95));
+        assert_eq!(default.backdrop_opacity, 1.0);
+        assert_eq!(default.sheen, 40);
+        assert_eq!(default.rim, [170, 90, 70, 130]);
+        assert_eq!(default.shadow, rgba(0, 0, 0, 40));
+        assert_eq!(default.shadow_blur, 30.0);
+        assert_eq!(default.shadow_offset, 6.0);
+        assert_eq!(default.indicator, rgba(0, 0, 0, 140));
+        assert_eq!(default.indicator_size, 3.5);
+        assert_eq!(default.corner_radius_ratio, 0.32);
+        assert_eq!(default.separator, rgba(223, 223, 223, 126));
+        assert_eq!(default.panel_tint, rgba(250, 251, 255, 150));
+
+        let clear = Theme::new(glass_look(true, true, 100, 100));
+        assert_eq!(clear.tint.A, 20);
+        assert_eq!(clear.panel_tint.A, 150);
+
+        let solid = Theme::new(glass_look(false, false, 65, 100));
+        assert_eq!(solid.tint, rgba(236, 238, 242, 255));
+        assert_eq!(solid.backdrop_opacity, 0.0);
+        assert_eq!(solid.separator, rgba(0, 0, 0, 42));
+        assert_eq!(solid.panel_tint, rgba(236, 238, 242, 255));
+    }
+
+    #[test]
+    fn glass_bar_keeps_readable_alpha_floor_and_solid_fallback() {
+        let default_bar = Theme::for_bar(glass_look(true, true, 65, 100));
+        assert_eq!(default_bar.tint, rgba(250, 251, 255, 125));
+
+        let clear_bar = Theme::for_bar(glass_look(true, true, 100, 100));
+        assert_eq!(clear_bar.tint.A, 110);
+
+        let opaque_bar = Theme::for_bar(glass_look(true, true, 0, 100));
+        assert_eq!(opaque_bar.tint.A, 235);
+
+        let solid_bar = Theme::for_bar(glass_look(false, false, 65, 100));
+        assert_eq!(solid_bar.tint, rgba(236, 238, 242, 255));
+    }
+
+    #[test]
+    fn existing_themes_keep_their_original_geometry_and_shadow_metrics() {
+        for material in [
+            Material::Standard,
+            Material::Frosted,
+            Material::Clear,
+            Material::Aurora,
+        ] {
+            for light in [true, false] {
+                let theme = Theme::new(Look::classic(material, light, true));
+                assert_eq!(theme.shadow_blur, 22.0);
+                assert_eq!(theme.shadow_offset, 8.0);
+                assert_eq!(theme.indicator_size, 4.0);
+                assert_eq!(theme.corner_radius_ratio, 0.36);
+            }
+        }
     }
 }

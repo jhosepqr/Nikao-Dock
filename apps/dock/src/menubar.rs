@@ -3566,6 +3566,37 @@ fn island_shadow(
     Ok(host)
 }
 
+/// Island and bubble fill colour. Glass matches the light translucent pill
+/// (with a legibility floor for status text and icons); older themes keep
+/// their existing tints.
+fn island_tint(look: appearance::Look) -> Color {
+    match look.material {
+        Material::Glass => {
+            if look.glass {
+                let alpha = appearance::glass_tint_alpha(look.transparency)
+                    .saturating_add(55)
+                    .clamp(140, 235);
+                rgba(250, 251, 255, alpha)
+            } else if look.translucent {
+                let alpha = appearance::glass_unblurred_tint_alpha(look.transparency)
+                    .saturating_add(45)
+                    .min(235);
+                rgba(250, 251, 255, alpha)
+            } else {
+                rgba(236, 238, 242, 255)
+            }
+        }
+        Material::Standard | Material::Frosted | Material::Clear | Material::Aurora => {
+            match (look.light, look.glass) {
+                (true, true) => rgba(247, 249, 252, 243),
+                (false, true) => rgba(7, 9, 13, 242),
+                (true, false) => rgba(247, 249, 252, 255),
+                (false, false) => rgba(10, 12, 17, 255),
+            }
+        }
+    }
+}
+
 fn island_surface(
     gfx: &Gfx,
     look: &Look,
@@ -3586,12 +3617,7 @@ fn island_surface(
     let silhouette = gfx.island_mask(island_width, island_height, scale)?;
     content.InsertAtTop(&island_shadow(c, &silhouette.cast()?, size, geometry)?)?;
 
-    let tint = match (look.light, look.glass) {
-        (true, true) => rgba(247, 249, 252, 243),
-        (false, true) => rgba(7, 9, 13, 242),
-        (true, false) => rgba(247, 249, 252, 255),
-        (false, false) => rgba(10, 12, 17, 255),
-    };
+    let tint = island_tint(look.surface());
     if let Some(opacity) = host_backdrop_opacity(look) {
         // The backdrop cannot be used as a mask-brush source. Inset its
         // rounded clip so it stays entirely inside the curved silhouette.
@@ -3663,12 +3689,9 @@ fn bubble_surface(
     bubble.SetOffset(Vector3::new(geometry.left.round(), inset_y, 0.0))?;
     let content = bubble.Children()?;
 
-    let tint = match (look.light, look.glass) {
-        (true, true) => rgba(247, 249, 252, 243),
-        (false, true) => rgba(7, 9, 13, 242),
-        (true, false) => rgba(247, 249, 252, 255),
-        (false, false) => rgba(10, 12, 17, 255),
-    };
+    let tint = island_tint(look.surface());
+    let border = (look.material == Material::Glass && (look.glass || look.translucent))
+        .then_some(rgba(255, 255, 255, 130));
     if let Some(opacity) = host_backdrop_opacity(look) {
         let glass = c.CreateContainerVisual()?;
         glass.SetSize(size)?;
@@ -3699,7 +3722,7 @@ fn bubble_surface(
         pill_height,
         radius,
         tint,
-        None,
+        border,
     )?;
 
     layers.InsertAtTop(&bubble)?;
@@ -5489,5 +5512,57 @@ mod mascot_tests {
         after.providers[Provider::Claude as usize].fetched_at =
             now.checked_sub(std::time::Duration::from_secs(60));
         assert!(usage_moment(&before, &after, &active).is_none());
+    }
+
+    #[test]
+    fn island_tint_matches_glass_and_preserves_classic_themes() {
+        let glass_default = island_tint(appearance::Look {
+            material: Material::Glass,
+            light: true,
+            glass: true,
+            translucent: true,
+            transparency: 65,
+            blur: 100,
+        });
+        assert_eq!(glass_default, rgba(250, 251, 255, 150));
+
+        let glass_clear = island_tint(appearance::Look {
+            material: Material::Glass,
+            light: true,
+            glass: true,
+            translucent: true,
+            transparency: 100,
+            blur: 100,
+        });
+        assert_eq!(glass_clear, rgba(250, 251, 255, 140));
+
+        let glass_win10 = island_tint(appearance::Look {
+            material: Material::Glass,
+            light: true,
+            glass: false,
+            translucent: true,
+            transparency: 65,
+            blur: 100,
+        });
+        assert_eq!(glass_win10, rgba(250, 251, 255, 195));
+
+        let glass_solid = island_tint(appearance::Look {
+            material: Material::Glass,
+            light: true,
+            glass: false,
+            translucent: false,
+            transparency: 65,
+            blur: 100,
+        });
+        assert_eq!(glass_solid, rgba(236, 238, 242, 255));
+
+        assert_eq!(
+            island_tint(appearance::Look::classic(Material::Standard, true, true)),
+            rgba(247, 249, 252, 243)
+        );
+        assert_eq!(
+            island_tint(appearance::Look::classic(Material::Standard, false, true)),
+            rgba(7, 9, 13, 242)
+        );
     }
 }
