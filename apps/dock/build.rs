@@ -42,10 +42,11 @@ const MANIFEST: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?
 "#;
 
 fn main() {
-    println!("cargo:rerun-if-changed=../../assets/brand/muelle.ico");
+    println!("cargo:rerun-if-changed=../../assets/brand/nikao-dock.ico");
+    println!("cargo:rerun-if-changed=../../assets/brand/nikao-dock-icon.png");
     println!("cargo:rerun-if-changed=build.rs");
     let mut resources = winresource::WindowsResource::new();
-    resources.set_icon("../../assets/brand/muelle.ico");
+    resources.set_icon("../../assets/brand/nikao-dock.ico");
     // Code signing checks that every signed file names the same product.
     resources.set("ProductName", "Nikao Dock");
     resources.set("FileDescription", "Nikao Dock");

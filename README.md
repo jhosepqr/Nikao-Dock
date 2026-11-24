@@ -1,171 +1,151 @@
 <div align="center">
-  
-<img width="50%" alt="Frame 1116606779" src="https://github.com/user-attachments/assets/8c715a53-a0df-4780-9dd4-09ce3ccd9043" />
 
-### A lightweight, macOS-inspired dock for Windows 10 and 11
+[English](README.en.md)
 
-  Nikao Dock replaces the Windows taskbar with a customizable dock and an optional
-  macOS-style menu bar. Based on Muelle by Crafter Station
-  (basado en Muelle de Crafter Station).
+<img src="assets/brand/nikao-dock-icon.png" alt="Nikao Dock" width="160" />
+
+# Nikao Dock
+
+**Dock estilo macOS con vidrio para Windows 10 y 11**
+
+[![Versión](https://img.shields.io/github/v/release/jhosepqr/Nikao-Dock?include_prereleases&label=versión)](https://github.com/jhosepqr/Nikao-Dock/releases)
+[![Descargas](https://img.shields.io/github/downloads/jhosepqr/Nikao-Dock/total?label=descargas)](https://github.com/jhosepqr/Nikao-Dock/releases)
+[![Build](https://img.shields.io/github/actions/workflow/status/jhosepqr/Nikao-Dock/fork-installer.yml?branch=feat%2Fglass-dock&label=build)](https://github.com/jhosepqr/Nikao-Dock/actions/workflows/fork-installer.yml)
+[![Licencia](https://img.shields.io/github/license/jhosepqr/Nikao-Dock)](LICENSE)
+[![Windows](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D6?logo=windows&logoColor=white)](#instalación)
+[![Rust / Tauri](https://img.shields.io/badge/Rust%20%2F%20Tauri-nativo-orange)](#compilar-desde-código)
+[![Estrellas](https://img.shields.io/github/stars/jhosepqr/Nikao-Dock?style=social)](https://github.com/jhosepqr/Nikao-Dock/stargazers)
+
+<br />
+
+<a href="https://github.com/jhosepqr/Nikao-Dock/releases">
+  <img src="https://img.shields.io/badge/Descargar_para_Windows-0A7CFF?style=for-the-badge&logo=windows&logoColor=white" alt="Descargar para Windows" height="44" />
+</a>
+
+&nbsp;
+
+<a href="https://github.com/jhosepqr/Nikao-Dock/releases"><img src="https://img.shields.io/badge/Releases-1f2328?style=flat-square" alt="Releases" /></a>
+&nbsp;
+<a href="https://github.com/jhosepqr/Nikao-Dock/issues"><img src="https://img.shields.io/badge/Reportar_un_bug-1f2328?style=flat-square" alt="Reportar un bug" /></a>
 
 </div>
 
-<img width="1500" height="436" alt="Frame 1116606780" src="https://github.com/user-attachments/assets/3c91b488-214d-453d-a8c2-a9e0dc7f245e" />
+Nikao Dock reemplaza la barra de tareas de Windows por un dock translúcido, una
+barra superior opcional y paneles nativos que caen desde arriba. Está pensado
+para el día a día en Windows 10 y 11, con **uso de CPU cercano a cero** cuando
+los paneles están cerrados.
 
-<img width="1000" height="259" alt="ezgif-6345057d171e16ef" src="https://github.com/user-attachments/assets/e5b2ce63-cec1-4d1d-8ef1-a4fa1c668c40" />
+> Basado en [Muelle](https://github.com/crafter-station/Muelle) de Crafter
+> Station. Este fork no se actualiza solo al Muelle oficial.
 
-| Clawd Pet | Genie Effect on Minimize |
-| :---: | :---: |
-| ![GIF showing mascot the Dock and Menu Bar](https://github.com/user-attachments/assets/580b235e-6141-493a-a333-8f2b96f3acca) | ![GIF showing a window minimizing into the Dock with the Genie effect](https://github.com/user-attachments/assets/878503a8-7286-445d-826b-41c18da013bc) |
-| **Usage preview** | **Usage detail** |
-| ![GIF showing the Dock and Menu Bar automatically hiding and reappearing](https://github.com/user-attachments/assets/60a8f7c0-20fc-429b-977f-d5b4b7d97d88) | ![GIF showing a window minimizing into the Dock with the Genie effect](https://github.com/user-attachments/assets/fbf21cf6-c1c0-4173-9d68-ae883f0d2a45) |
+---
 
-## Features
+## Características
 
-- Glass-style dock with smooth, cursor-based icon magnification.
-- Choose the dock's screen edge in Settings → Dock → *Position on screen*:
-  left, bottom, or right. Bottom is the default.
-- Launch, pin, reorder, and manage apps, including recent apps and open windows.
-- Group pinned apps into a single dock icon: drop one app onto another, click
-  the group to fan its apps out, and drag one out of the fan to take it back.
-- Hover over an app with multiple windows to show live, titled previews;
-  click a preview to switch to that window. Scroll over the previews for more
-  windows, or press Escape to dismiss it.
-- Minimized windows fold into their app's icon with the Genie effect; turn on
-  Settings → Windows → *Show minimized windows* to keep them as live thumbnails
-  on the right side of the dock instead.
-- Click the app already in front to minimize it, as on the Windows taskbar.
-- Right-click an app to see its jump list, with icons, as on the Windows
-  taskbar: pinned and recent items, the app's own categories and its tasks.
-- Drag and drop files onto apps, Downloads, or the Recycle Bin.
-- A shortcuts folder at the right of the dock: its contents open as a menu,
-  with a submenu for each folder inside, like a Windows 10 taskbar toolbar.
-- Optional auto-hide.
-- Optional battery levels for compatible connected mice and headsets. Enable
-  Settings → Menu bar → *Show accessory battery*; it is off by default.
-- A top menu bar with the app in front, clock, network, volume and battery, the
-  input language, microphone/camera in use, the hidden tray icons, plus
-  the Search and Task View buttons if enabled on the Windows taskbar. The
-  Widgets button is off by default and can be enabled in Settings.
-- A curved island in the menu bar for usage limits from Claude Code, Codex,
-  OpenCode Go, Z.ai GLM Coding Plan, Gemini CLI, and Antigravity. Z.ai shows
-  its 5-hour and weekly limits; Gemini Pro and Flash quotas appear separately
-  when available.
-- Separate Settings app with live changes and a configurable Genie animation.
-  Eight languages: English, Spanish, French, Simplified Chinese, Hindi, Arabic,
-  Bengali and Portuguese. Pick a language or follow Windows automatically.
-- A watchdog restores the Windows taskbar if the dock exits unexpectedly.
+- **Vidrio en vivo (glass / blur)** — Desenfoque del escritorio vía DWM, borde
+  brillante y controles de transparencia en Ajustes.
+- **Búsqueda tipo Spotlight** — Panel bajo la barra superior; opción de volver a
+  la búsqueda de Windows.
+- **Panel de batería** — Porcentaje, carga, tiempo estimado y modo de energía
+  sin abrir los ajustes rápidos de Windows.
+- **Barra superior** — Reloj, red, volumen, isla de música/IA y más; se puede
+  ocultar al borde.
+- **Bajo consumo en reposo** — Sin timers ni redibujado por frame mientras los
+  flyouts están cerrados; el trabajo queda en el compositor de Windows.
 
-The Genie effect is **on by default** and can be turned off in Settings → Windows.
-While enabled, Nikao Dock temporarily disables Windows window transitions for
-tracked windows so its minimize animation can run; those transitions are
-restored when Nikao Dock exits.
+Dock clásico de macOS: ampliación suave, grupos, efecto genio al minimizar,
+miniaturas en vivo y accesos directos en carpeta.
 
-## Install
+---
 
-**[Download Nikao-Dock-Setup.exe](https://github.com/jhosepqr/Nikao-Dock/releases/download/v0.1.22-glass.3/Nikao-Dock-Setup.exe)**
-(Windows 10 version 1903 or later, or Windows 11; 64-bit) or pick a version from
-[Releases](https://github.com/jhosepqr/Nikao-Dock/releases).
+## Capturas
 
-1. Run `Nikao-Dock-Setup.exe`. It installs for your user only: no administrator
-   rights, no wizard, about two seconds.
-2. Nikao Dock is new, so Windows SmartScreen may not recognize it yet and say it
-   protected your PC. Choose **More info → Run anyway**. See the
-   [code-signing policy](https://muelle.crafter.run/code-signing-policy).
-3. Open **Nikao Dock** from the Start menu, then choose **Dock** to
-   personalize the dock and top menu bar.
+Las imágenes de referencia van en [`assets/screenshots/`](assets/screenshots/).
+Todavía son marcadores hasta que se publiquen capturas reales:
 
-An older **Muelle** install is a different app. The installer turns its startup
-off and uninstalls that entry without deleting pins. If **Muelle** is still
-listed in Settings → Apps, uninstall it and leave "delete app data" unchecked.
-Pins and settings are copied to `%APPDATA%\Nikao Dock`.
+| Archivo sugerido | Qué muestra |
+| --- | --- |
+| `assets/screenshots/dock-glass.png` | Dock y barra con tema vidrio |
+| `assets/screenshots/spotlight.png` | Búsqueda bajo la barra |
+| `assets/screenshots/battery-panel.png` | Panel de batería |
 
-## Try it on Windows
+---
 
-### Prerequisites
+## Instalación
 
-- Windows 10 (version 1903 or later) or Windows 11. On Windows 10 the dock and
-  menu bar are solid instead of glass: Windows 10 has no backdrop blur for
-  desktop apps.
-- Rust with the MSVC toolchain and Visual Studio C++ Build Tools
-- Node.js and pnpm
+1. Andá a [Releases](https://github.com/jhosepqr/Nikao-Dock/releases) y bajá
+   **Nikao-Dock-Setup.exe** de la pre-release más nueva (hoy:
+   `v0.1.22-glass.*`). GitHub no redirige `/releases/latest` a pre-releases; el
+   instalador está en la página de la release.
+2. **SmartScreen:** si Windows dice que protegió tu PC, elegí **Más información
+   → Ejecutar de todas formas** (el instalador del fork no está firmado).
+3. Si **Edge** marca el archivo como poco habitual: menú **⋯ → Conservar**.
+4. La instalación es **pasiva**: sin asistente, para tu usuario, en
+   `%LOCALAPPDATA%\Programs\Nikao Dock`.
 
-### Run the dock
+### Si tenías Muelle (compilación anterior del fork)
 
-From the repository root:
+Nikao Dock es **otra aplicación** en Configuración → Aplicaciones. El
+instalador apaga el inicio automático de Muelle, cierra ese dock y lo desinstala
+en silencio **sin borrar** `%APPDATA%\Muelle`. Al abrir Nikao Dock, **copia**
+pines y ajustes a `%APPDATA%\Nikao Dock`.
+
+Si después de instalar seguís viendo la entrada **Muelle**, desinstalala **sin**
+marcar borrar datos. Tiene que quedar una sola app y un solo inicio con Windows.
+
+---
+
+## Compilar desde código
+
+Requisitos: Windows 10 (1903+) u 11, Rust (MSVC), Node.js y pnpm. En Linux
+podés chequear tipos con `cargo xwin clippy` (ver CI).
 
 ```powershell
+# Dock
 cargo run -p muelle
-```
 
-The dock hides the taskbar while it is running. Press **Ctrl+C** in the
-terminal to exit; Nikao Dock should restore the taskbar automatically. If you need
-to restore it manually:
-
-```powershell
-cargo run -p muelle -- --restore
-```
-
-### Run Settings
-
-Keep the dock running, open a second terminal, and run:
-
-```powershell
+# Ajustes (en otra terminal, con el dock en marcha)
 cd apps\settings
 pnpm install
 pnpm tauri dev
 ```
 
-This opens the native Settings window. Frontend changes hot-reload; after
-changing the Rust backend, restart `tauri dev`. Settings changes are applied to
-the running dock.
-
-## Build and test
-
-From the repository root:
+Instalador local del fork (Windows):
 
 ```powershell
-cargo fmt --all -- --check
-cargo test --workspace --locked
+$env:MUELLE_FORK_BUILD = "1"
+./scripts/build-installer.ps1
 ```
 
-To build the Settings frontend:
+---
 
-```powershell
-cd apps\settings
-pnpm build
-```
+## Roadmap
 
-## Project layout
+- Pulir capturas y documentación de migración.
+- Más temas y ajustes del vidrio en hardware variado.
+- Empaquetado firmado cuando haya certificado de código.
 
-| Path | Purpose |
-|---|---|
-| `apps/dock` | Native Windows dock |
-| `apps/settings` | Tauri desktop settings app |
-| `crates/muelle-core` | Platform-independent layout and animation logic |
-| `crates/muelle-shell` | Windows shell integration |
-| `crates/muelle-config` | Shared settings and persistence |
-| `muelle` | Astro website |
+---
 
-## Privacy
+## Créditos
 
-Nikao Dock collects no data, has no telemetry and never sends anything to the
-project. It makes two kinds of network requests, both optional:
+- **Nikao Dock** — fork de [jhosepqr](https://github.com/jhosepqr).
+- **Muelle** — proyecto original de [Crafter Station](https://crafter-station.com);
+  código upstream en [crafter-station/Muelle](https://github.com/crafter-station/Muelle).
 
-- **Updates:** Settings asks GitHub Releases for a newer version when it
-  opens, and once a day, a couple of minutes after you turn on the computer,
-  Nikao Dock does the same in the background and installs what it finds (the dock
-  itself never uses the network). Turn off the installing in Settings → System
-  → *Install updates automatically*, or everything with *Check for updates
-  automatically*.
-- **AI provider usage:** while a supported client is running, Nikao Dock reads its
-  existing local sign-in and asks that provider for available plan limits
-  every five minutes while visible, or when you press Refresh. For Gemini CLI
-  and Antigravity, Gemini Pro and Flash quotas are shown separately when
-  available; Antigravity is queried through its local service. Credentials stay
-  in memory and are never stored by Nikao Dock. For Z.ai Coding Plan, Nikao Dock reads
-  the key from OpenCode's local `auth.json` or `ZAI_API_KEY` /
-  `ZHIPU_API_KEY`, then sends it to Z.ai's quota service. Turn usage queries
-  off in Settings → Menu bar → *Show AI provider usage*.
+---
 
-Details: [muelle.crafter.run/privacy](https://muelle.crafter.run/privacy).
+## Licencia
+
+MIT — ver [LICENSE](LICENSE). El aviso de copyright de Crafter Station /
+contribuyentes de Muelle se mantiene en el archivo de licencia.
+
+---
+
+<div align="center">
+
+### Historial de estrellas
+
+[![Star History Chart](https://api.star-history.com/svg?repos=jhosepqr/Nikao-Dock&type=Date)](https://star-history.com/#jhosepqr/Nikao-Dock&Date)
+
+</div>
