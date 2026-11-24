@@ -4,6 +4,8 @@
 
 <img src="assets/brand/nikao-dock-icon.png" alt="Nikao Dock" width="160" />
 
+<sub>Product icon pending — hero path <code>assets/brand/nikao-dock-icon.png</code> will point at the approved asset when it lands.</sub>
+
 # Nikao Dock
 
 **macOS-style glass dock for Windows 10 and 11**

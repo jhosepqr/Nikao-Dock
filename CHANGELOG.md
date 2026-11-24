@@ -10,10 +10,12 @@ copia la sección de la versión que se publica a la release de GitHub.
 
 ### English
 
-- New Nikao Dock icon (glass blue “N”) across the dock executable, Settings,
-  installer, and Start menu.
 - README rewrite (Spanish default, English in README.en.md) with install and
-  Muelle migration notes.
+  Muelle migration notes. Hero image path `assets/brand/nikao-dock-icon.png` is
+  reserved for the owner-approved icon (not shipped yet).
+- Nikao Dock brand icon (pending owner asset) for the dock executable,
+  Settings, installer, and Start menu — do not tag a new glass pre-release
+  until it lands.
 - New Glass theme (default), with transparency and blur controls in Settings:
   light translucent glass over the live blurred wallpaper, a bright thin rim,
   a short highlight along the top edge, a soft shadow, subtle separators and
@@ -37,10 +39,12 @@ copia la sección de la versión que se publica a la release de GitHub.
 
 ### Español
 
-- Nuevo ícono de Nikao Dock (N azul vidrio) en el ejecutable, Ajustes,
-  instalador y menú Inicio.
 - README renovado (español por defecto, inglés en README.en.md) con instalación
-  y migración desde Muelle.
+  y migración desde Muelle. La imagen del héroe usa la ruta
+  `assets/brand/nikao-dock-icon.png` (pendiente del ícono aprobado).
+- Ícono de marca Nikao Dock (pendiente del recurso del propietario) para el
+  ejecutable, Ajustes, instalador y menú Inicio — no publicar una nueva
+  pre-release glass hasta que llegue.
 - Nuevo tema Vidrio (predeterminado), con controles de transparencia y
   desenfoque en Ajustes: vidrio claro translúcido sobre el fondo desenfocado
   en vivo, borde fino y brillante, un brillo corto en el borde de arriba,

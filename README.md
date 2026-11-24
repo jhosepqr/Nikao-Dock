@@ -4,6 +4,8 @@
 
 <img src="assets/brand/nikao-dock-icon.png" alt="Nikao Dock" width="160" />
 
+<sub>Ícono de producto pendiente — la ruta <code>assets/brand/nikao-dock-icon.png</code> se usará cuando llegue el arte aprobado.</sub>
+
 # Nikao Dock
 
 **Dock estilo macOS con vidrio para Windows 10 y 11**
