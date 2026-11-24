@@ -26,6 +26,10 @@ copia la sección de la versión que se publica a la release de GitHub.
   the panel opens and when Windows sends a power event, and does nothing while
   closed. Wi-Fi and the control-center icon still open Quick Settings; volume
   still opens the sound flyout.
+- This fork is named Nikao Dock in the window, Settings, installer, Start menu
+  and Apps list. Pins and settings are copied from `%APPDATA%\Muelle` the first
+  time. The installer turns off the previous Muelle autostart and uninstalls
+  that entry without deleting its data.
 
 ### Español
 
@@ -47,6 +51,10 @@ copia la sección de la versión que se publica a la release de GitHub.
   Windows). Lee el estado al abrirse y cuando Windows avisa un cambio de
   energía, y cerrado no hace nada. El Wi-Fi y el centro de control siguen
   abriendo los ajustes rápidos; el volumen sigue abriendo el panel de sonido.
+- Este fork se llama Nikao Dock en la ventana, Ajustes, el instalador, el menú
+  Inicio y la lista de aplicaciones. La primera vez copia pines y ajustes desde
+  `%APPDATA%\Muelle`. El instalador apaga el inicio automático del Muelle
+  anterior y desinstala esa entrada sin borrar sus datos.
 
 ## [0.1.22]
 

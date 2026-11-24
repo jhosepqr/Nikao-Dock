@@ -4,8 +4,9 @@
 
 ### A lightweight, macOS-inspired dock for Windows 10 and 11
 
-  Muelle replaces the Windows taskbar with a customizable dock and an optional
-  macOS-style menu bar.
+  Nikao Dock replaces the Windows taskbar with a customizable dock and an optional
+  macOS-style menu bar. Based on Muelle by Crafter Station
+  (basado en Muelle de Crafter Station).
 
 </div>
 
@@ -56,23 +57,28 @@
 - A watchdog restores the Windows taskbar if the dock exits unexpectedly.
 
 The Genie effect is **on by default** and can be turned off in Settings → Windows.
-While enabled, Muelle temporarily disables Windows window transitions for
+While enabled, Nikao Dock temporarily disables Windows window transitions for
 tracked windows so its minimize animation can run; those transitions are
-restored when Muelle exits.
+restored when Nikao Dock exits.
 
 ## Install
 
-**[Download Muelle-Setup.exe](https://github.com/jhosepqr/Nikao-Dock/releases/download/v0.1.22-glass.3/Muelle-Setup.exe)**
+**[Download Nikao-Dock-Setup.exe](https://github.com/jhosepqr/Nikao-Dock/releases/download/v0.1.22-glass.3/Nikao-Dock-Setup.exe)**
 (Windows 10 version 1903 or later, or Windows 11; 64-bit) or pick a version from
 [Releases](https://github.com/jhosepqr/Nikao-Dock/releases).
 
-1. Run `Muelle-Setup.exe`. It installs for your user only: no administrator
+1. Run `Nikao-Dock-Setup.exe`. It installs for your user only: no administrator
    rights, no wizard, about two seconds.
-2. Muelle is new, so Windows SmartScreen may not recognize it yet and say it
+2. Nikao Dock is new, so Windows SmartScreen may not recognize it yet and say it
    protected your PC. Choose **More info → Run anyway**. See the
    [code-signing policy](https://muelle.crafter.run/code-signing-policy).
-3. Open **Muelle** from the Start menu, then choose **Dock** to
+3. Open **Nikao Dock** from the Start menu, then choose **Dock** to
    personalize the dock and top menu bar.
+
+An older **Muelle** install is a different app. The installer turns its startup
+off and uninstalls that entry without deleting pins. If **Muelle** is still
+listed in Settings → Apps, uninstall it and leave "delete app data" unchecked.
+Pins and settings are copied to `%APPDATA%\Nikao Dock`.
 
 ## Try it on Windows
 
@@ -93,7 +99,7 @@ cargo run -p muelle
 ```
 
 The dock hides the taskbar while it is running. Press **Ctrl+C** in the
-terminal to exit; Muelle should restore the taskbar automatically. If you need
+terminal to exit; Nikao Dock should restore the taskbar automatically. If you need
 to restore it manually:
 
 ```powershell
@@ -143,21 +149,21 @@ pnpm build
 
 ## Privacy
 
-Muelle collects no data, has no telemetry and never sends anything to the
+Nikao Dock collects no data, has no telemetry and never sends anything to the
 project. It makes two kinds of network requests, both optional:
 
 - **Updates:** Settings asks GitHub Releases for a newer version when it
   opens, and once a day, a couple of minutes after you turn on the computer,
-  Muelle does the same in the background and installs what it finds (the dock
+  Nikao Dock does the same in the background and installs what it finds (the dock
   itself never uses the network). Turn off the installing in Settings → System
   → *Install updates automatically*, or everything with *Check for updates
   automatically*.
-- **AI provider usage:** while a supported client is running, Muelle reads its
+- **AI provider usage:** while a supported client is running, Nikao Dock reads its
   existing local sign-in and asks that provider for available plan limits
   every five minutes while visible, or when you press Refresh. For Gemini CLI
   and Antigravity, Gemini Pro and Flash quotas are shown separately when
   available; Antigravity is queried through its local service. Credentials stay
-  in memory and are never stored by Muelle. For Z.ai Coding Plan, Muelle reads
+  in memory and are never stored by Nikao Dock. For Z.ai Coding Plan, Nikao Dock reads
   the key from OpenCode's local `auth.json` or `ZAI_API_KEY` /
   `ZHIPU_API_KEY`, then sends it to Z.ai's quota service. Turn usage queries
   off in Settings → Menu bar → *Show AI provider usage*.

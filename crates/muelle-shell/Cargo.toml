@@ -8,6 +8,7 @@ license.workspace = true
 workspace = true
 
 [dependencies]
+muelle-config.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 # `#[implement]` (COM callbacks in `status`) expands to paths in windows-core.

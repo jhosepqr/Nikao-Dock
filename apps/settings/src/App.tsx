@@ -350,12 +350,12 @@ export function App() {
         </nav>
         <footer className="sidebar-footer">
           <button type="button" className="project-link" onClick={showProject}>
-            <SettingIcon name="star" size={20} />
-            <span><strong>{t.githubTitle}</strong><span>{t.githubStar}</span></span>
+            <span>{t.githubTitle}</span>
             <SettingIcon name="external" size={12} />
           </button>
           {projectError ? <p className="project-error" role="alert">{t.githubError}</p> : null}
-          <div className="sidebar-version"><span>Muelle</span><span>{version ? `v${version}` : ""}</span></div>
+          <p className="sidebar-credit">{t.credit}</p>
+          <div className="sidebar-version"><span>Nikao Dock</span><span>{version ? `v${version}` : ""}</span></div>
         </footer>
       </aside>
 

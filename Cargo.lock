@@ -2306,6 +2306,7 @@ dependencies = [
 name = "muelle-shell"
 version = "0.1.22"
 dependencies = [
+ "muelle-config",
  "serde",
  "thiserror 2.0.21",
  "windows",

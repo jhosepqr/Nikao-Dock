@@ -1,4 +1,4 @@
-//! Persistent Muelle configuration stored in `%APPDATA%\Muelle\config.json`.
+//! Persistent configuration stored in `%APPDATA%\Nikao Dock\config.json`.
 
 use std::{
     env,
@@ -13,6 +13,12 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 pub const CURRENT_VERSION: u32 = 3;
+
+/// Folder under `%APPDATA%` and `%LOCALAPPDATA%`.
+/// The previous folder was `Muelle`; [`migrate_legacy_folder`] copies it once.
+pub const DATA_DIR: &str = "Nikao Dock";
+const LEGACY_DATA_DIR: &str = "Muelle";
+const OLDER_DATA_DIR: &str = "WinDock";
 
 /// Error reading or saving the configuration.
 #[derive(Debug, Error)]
@@ -416,19 +422,133 @@ impl Default for Config {
     }
 }
 
-/// Moves the settings folder from before the app was renamed to Muelle.
+/// Copies settings and pins into [`DATA_DIR`].
+///
+/// `WinDock` is renamed to `Muelle` first, matching the older move. `Muelle`
+/// is then copied, not renamed, so an old install that is still on disk keeps
+/// its folder until the user removes it. A destination that already exists is
+/// left alone. Pin paths inside `config.json` are rewritten to the copy.
 pub fn migrate_legacy_folder() {
     let roaming = PathBuf::from(env::var_os("APPDATA").unwrap_or_default());
-    let (old, new) = (roaming.join("WinDock"), roaming.join("Muelle"));
-    if old.is_dir() && !new.exists() {
-        let _ = fs::rename(old, new);
+    if roaming.as_os_str().is_empty() {
+        return;
     }
+    migrate_roaming(&roaming);
+}
+
+fn migrate_roaming(roaming: &Path) {
+    let older = roaming.join(OLDER_DATA_DIR);
+    let legacy = roaming.join(LEGACY_DATA_DIR);
+    if older.is_dir() && !legacy.exists() {
+        let _ = fs::rename(&older, &legacy);
+    }
+    let current = roaming.join(DATA_DIR);
+    if legacy.is_dir() && !current.exists() {
+        let _ = copy_tree(&legacy, &current);
+    } else if current.is_dir() {
+        let _ = rewrite_config_paths(&current.join("config.json"), &legacy, &current);
+    }
+}
+
+/// `Ok(true)` when this call created `to`. `Ok(false)` when `to` already
+/// existed, including when another process won the race.
+fn copy_tree(from: &Path, to: &Path) -> io::Result<bool> {
+    if to.exists() {
+        return Ok(false);
+    }
+    let Some(name) = to.file_name() else {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "destination has no name",
+        ));
+    };
+    let staging = to.with_file_name(format!(
+        ".{}.partial-{}",
+        name.to_string_lossy(),
+        std::process::id()
+    ));
+    if staging.exists() {
+        fs::remove_dir_all(&staging)?;
+    }
+    if let Err(error) = copy_children(from, &staging) {
+        let _ = fs::remove_dir_all(&staging);
+        return Err(error);
+    }
+    // Rewrite before the rename so the published folder already points at `to`.
+    let _ = rewrite_config_paths(&staging.join("config.json"), from, to);
+    match fs::rename(&staging, to) {
+        Ok(()) => Ok(true),
+        Err(_) if to.exists() => {
+            let _ = fs::remove_dir_all(&staging);
+            Ok(false)
+        }
+        Err(error) => {
+            let _ = fs::remove_dir_all(&staging);
+            Err(error)
+        }
+    }
+}
+
+fn copy_children(from: &Path, to: &Path) -> io::Result<()> {
+    fs::create_dir_all(to)?;
+    for entry in fs::read_dir(from)? {
+        let entry = entry?;
+        let kind = entry.file_type()?;
+        let target = to.join(entry.file_name());
+        if kind.is_dir() {
+            copy_children(&entry.path(), &target)?;
+        } else if kind.is_file() {
+            fs::copy(entry.path(), &target)?;
+        }
+    }
+    Ok(())
+}
+
+fn rewrite_config_paths(file: &Path, from: &Path, to: &Path) -> io::Result<()> {
+    let text = match fs::read_to_string(file) {
+        Ok(text) => text,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error),
+    };
+    let updated = replace_ci(&text, &json_path(from), &json_path(to));
+    let updated = replace_ci(
+        &updated,
+        from.to_string_lossy().as_ref(),
+        to.to_string_lossy().as_ref(),
+    );
+    if updated != text {
+        fs::write(file, updated)?;
+    }
+    Ok(())
+}
+
+fn json_path(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "\\\\")
+}
+
+/// ASCII case-insensitive replace. Windows stores the same folder with either case.
+fn replace_ci(text: &str, from: &str, to: &str) -> String {
+    if from.is_empty() {
+        return text.to_owned();
+    }
+    let folded = text.to_ascii_lowercase();
+    let needle = from.to_ascii_lowercase();
+    let mut out = String::with_capacity(text.len());
+    let mut start = 0;
+    while let Some(offset) = folded[start..].find(&needle) {
+        let at = start + offset;
+        out.push_str(&text[start..at]);
+        out.push_str(to);
+        start = at + from.len();
+    }
+    out.push_str(&text[start..]);
+    out
 }
 
 #[must_use]
 pub fn default_path() -> PathBuf {
     PathBuf::from(env::var_os("APPDATA").unwrap_or_default())
-        .join("Muelle")
+        .join(DATA_DIR)
         .join("config.json")
 }
 
@@ -1278,5 +1398,81 @@ mod tests {
         fs::write(&path, r#"{"version":1,"pinned":["a"],"auto_hide":true}"#).ok();
         let loaded = load(&path).ok().flatten();
         assert_eq!(loaded.map(|config| config.auto_hide), Some(true));
+    }
+
+    #[test]
+    fn migrate_roaming_copies_pins_and_rewrites_their_paths() {
+        let root = env::temp_dir().join(format!("muelle-migrate-{}-copy", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let legacy = root.join(LEGACY_DATA_DIR);
+        let pins = legacy.join("Pins");
+        fs::create_dir_all(&pins).ok();
+        let pin = pins.join("Notas.lnk");
+        fs::write(&pin, b"pin").ok();
+        let escaped = pin.to_string_lossy().replace('\\', "\\\\");
+        fs::write(
+            legacy.join("config.json"),
+            format!(r#"{{"pinned":["{escaped}"]}}"#),
+        )
+        .ok();
+        migrate_roaming(&root);
+        let current = root.join(DATA_DIR);
+        assert!(current.join("Pins").join("Notas.lnk").is_file());
+        assert!(pin.is_file());
+        let text = fs::read_to_string(current.join("config.json")).unwrap_or_default();
+        assert!(text.contains(DATA_DIR), "{text}");
+        assert!(
+            !text.contains("Muelle\\Pins") && !text.contains("Muelle/Pins"),
+            "{text}"
+        );
+        fs::write(current.join("config.json"), "{}").ok();
+        migrate_roaming(&root);
+        assert_eq!(
+            fs::read_to_string(current.join("config.json")).unwrap_or_default(),
+            "{}"
+        );
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn rewrite_config_paths_moves_windows_pin_paths() {
+        let root = env::temp_dir().join(format!("muelle-migrate-{}-rewrite", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).ok();
+        let file = root.join("config.json");
+        fs::write(
+            &file,
+            r#"{"pinned":["C:\\Users\\a\\AppData\\Roaming\\Muelle\\Pins\\Notas.lnk","C:\\Users\\a\\AppData\\Roaming\\muelle\\Pins\\Calc.lnk"]}"#,
+        )
+        .ok();
+        rewrite_config_paths(
+            &file,
+            Path::new(r"C:\Users\a\AppData\Roaming\Muelle"),
+            Path::new(r"C:\Users\a\AppData\Roaming\Nikao Dock"),
+        )
+        .ok();
+        let text = fs::read_to_string(&file).unwrap_or_default();
+        assert!(text.contains(r"Nikao Dock\\Pins\\Notas.lnk"), "{text}");
+        assert!(text.contains(r"Nikao Dock\\Pins\\Calc.lnk"), "{text}");
+        assert!(
+            !text.to_ascii_lowercase().contains(r"roaming\\muelle\\"),
+            "{text}"
+        );
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn migrate_roaming_moves_windock_before_copying() {
+        let root = env::temp_dir().join(format!("muelle-migrate-{}-windock", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let older = root.join(OLDER_DATA_DIR);
+        fs::create_dir_all(&older).ok();
+        fs::write(older.join("config.json"), r#"{"iconSize":48}"#).ok();
+        migrate_roaming(&root);
+        assert!(!older.exists());
+        assert!(root.join(LEGACY_DATA_DIR).join("config.json").is_file());
+        let text = fs::read_to_string(root.join(DATA_DIR).join("config.json")).unwrap_or_default();
+        assert!(text.contains("48"), "{text}");
+        let _ = fs::remove_dir_all(&root);
     }
 }

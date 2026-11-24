@@ -28,8 +28,53 @@
   ${EndIf}
 !macroend
 
+; The previous fork installed as "Muelle", a different product, so this
+; installer does not replace that entry by itself. Stop it, turn its
+; autostart off, and uninstall it without deleting %APPDATA%\Muelle.
+; The dock copies that folder to %APPDATA%\Nikao Dock on first launch.
+!macro NIKAO_RETIRE_MUELLE
+  SetShellVarContext current
+  StrCpy $R7 "$LOCALAPPDATA\Programs\Muelle"
+  ${If} ${FileExists} "$R7\muelle.exe"
+    ExecWait '"$R7\muelle.exe" --restore'
+    ExecWait '"$R7\muelle.exe" --autostart off'
+  ${EndIf}
+  StrCpy $R8 0
+  ${Do}
+    nsis_tauri_utils::FindProcessCurrentUser "muelle.exe"
+    Pop $R9
+    ${If} $R9 <> 0
+      ${Break}
+    ${EndIf}
+    ${If} $R8 >= 50
+      nsis_tauri_utils::KillProcessCurrentUser "muelle.exe"
+      Pop $R9
+      Sleep 300
+      ${If} ${FileExists} "$R7\muelle.exe"
+        ExecWait '"$R7\muelle.exe" --restore'
+      ${EndIf}
+      ${Break}
+    ${EndIf}
+    Sleep 100
+    IntOp $R8 $R8 + 1
+  ${Loop}
+  ; Settings is muelle-settings.exe. Close it so the old uninstaller does not
+  ; stop to ask. This installer is not that process.
+  nsis_tauri_utils::KillProcessCurrentUser "muelle-settings.exe"
+  Pop $R9
+  ; /S leaves the delete-data checkbox unchecked, so pins stay put.
+  ; _?= runs the uninstaller in place and makes ExecWait wait for it.
+  ${If} ${FileExists} "$R7\uninstall.exe"
+    ExecWait '"$R7\uninstall.exe" /S _?=$R7'
+  ${EndIf}
+  DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "Muelle"
+  Delete "$SMPROGRAMS\Muelle.lnk"
+  Delete "$DESKTOP\Muelle.lnk"
+!macroend
+
 !macro NSIS_HOOK_PREINSTALL
   !insertmacro MUELLE_STOP_DOCK
+  !insertmacro NIKAO_RETIRE_MUELLE
 !macroend
 
 !macro NSIS_HOOK_POSTINSTALL
@@ -55,11 +100,11 @@
   ${If} $UpdateMode <> 1
     SetShellVarContext current
     ; The icon cache is always disposable.
-    RmDir /r "$LOCALAPPDATA\Muelle"
-    ; Where Muelle remembers that it starts with Windows.
-    DeleteRegKey HKCU "Software\Muelle"
+    RmDir /r "$LOCALAPPDATA\Nikao Dock"
+    ; Where Nikao Dock remembers that it starts with Windows.
+    DeleteRegKey HKCU "Software\Nikao Dock"
     ${If} $DeleteAppDataCheckboxState = 1
-      RmDir /r "$APPDATA\Muelle"
+      RmDir /r "$APPDATA\Nikao Dock"
     ${EndIf}
   ${EndIf}
 !macroend

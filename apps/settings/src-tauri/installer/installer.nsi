@@ -544,8 +544,7 @@ Function .onInit
         StrCpy $INSTDIR "$PROGRAMFILES\${PRODUCTNAME}"
       ${EndIf}
     !else if "${INSTALLMODE}" == "currentUser"
-      ; Muelle: the conventional per-user location; $LOCALAPPDATA\Muelle holds
-      ; the dock's icon cache.
+      ; Per-user location. The icon cache is $LOCALAPPDATA\Nikao Dock, not here.
       StrCpy $INSTDIR "$LOCALAPPDATA\Programs\${PRODUCTNAME}"
     !endif
 

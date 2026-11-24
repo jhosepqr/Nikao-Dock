@@ -47,8 +47,8 @@ fn main() {
     let mut resources = winresource::WindowsResource::new();
     resources.set_icon("../../assets/brand/muelle.ico");
     // Code signing checks that every signed file names the same product.
-    resources.set("ProductName", "Muelle");
-    resources.set("FileDescription", "Muelle dock");
+    resources.set("ProductName", "Nikao Dock");
+    resources.set("FileDescription", "Nikao Dock");
     // Ensure Microsoft.Windows.Common-Controls 6.0.0.0 is declared so shell
     // extensions (like utshellext.dll) find modern exports like LoadIconWithScaleDown
     // (ordinal 381) instead of failing on comctl32 v5 (issue #23).

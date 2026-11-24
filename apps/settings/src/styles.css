@@ -92,9 +92,9 @@ input:focus-visible {
 }
 
 .project-link {
-  display: grid;
-  grid-template-columns: 20px minmax(0, 1fr) 12px;
+  display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
   width: 100%;
   padding: 10px 8px;
@@ -109,6 +109,7 @@ input:focus-visible {
 .project-link > svg:last-child { color: var(--text-dim); }
 .project-link strong { display: block; font-size: 12px; font-weight: 600; }
 .project-link span span { display: block; margin-top: 3px; font-size: 10.5px; color: var(--text-dim); }
+.sidebar-credit { margin: 8px 8px 0; font-size: 11px; color: var(--text-dim); }
 .sidebar-version { display: flex; justify-content: space-between; padding: 10px 8px 0; font-size: 11px; color: var(--text-dim); }
 .project-error { margin: 8px; color: var(--text-dim); font-size: 11px; }
 

@@ -1121,7 +1121,7 @@ impl MenuBar {
             let hwnd = CreateWindowExW(
                 WS_EX_NOREDIRECTIONBITMAP | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
                 class,
-                w!("Muelle"),
+                w!("Nikao Dock"),
                 WS_POPUP,
                 0,
                 0,

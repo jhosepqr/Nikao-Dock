@@ -1,16 +1,17 @@
 <div align="center">
 
-<img width="50%" alt="Muelle" src="https://github.com/user-attachments/assets/8c715a53-a0df-4780-9dd4-09ce3ccd9043" />
+<img width="50%" alt="Nikao Dock" src="https://github.com/user-attachments/assets/8c715a53-a0df-4780-9dd4-09ce3ccd9043" />
 
   **Un dock léger, inspiré de macOS, pour Windows 10 et 11.**
 
-  Muelle remplace la barre des tâches de Windows par un dock personnalisable et
-  une barre de menus facultative à la manière de macOS.
+  Nikao Dock remplace la barre des tâches de Windows par un dock personnalisable et
+  une barre de menus facultative à la manière de macOS. Basé sur Muelle de
+  Crafter Station.
 
   [English](README.md) · [Español](README.es.md) · **Français**
 </div>
 
-<img width="1500" height="436" alt="Le dock et la barre de menus de Muelle" src="https://github.com/user-attachments/assets/3c91b488-214d-453d-a8c2-a9e0dc7f245e" />
+<img width="1500" height="436" alt="Le dock et la barre de menus de Nikao Dock" src="https://github.com/user-attachments/assets/3c91b488-214d-453d-a8c2-a9e0dc7f245e" />
 
 <img width="1000" height="259" alt="Agrandissement des icônes du dock" src="https://github.com/user-attachments/assets/e5b2ce63-cec1-4d1d-8ef1-a4fa1c668c40" />
 
@@ -70,25 +71,31 @@ Agrandissement fluide, aperçus des fenêtres en direct et effet génie facultat
   dock se ferme de façon inattendue.
 
 L'effet génie est **activé par défaut** et se désactive dans Réglages →
-Fenêtres. Tant qu'il est activé, Muelle désactive temporairement les
+Fenêtres. Tant qu'il est activé, Nikao Dock désactive temporairement les
 transitions de Windows pour les fenêtres qu'il suit, afin de pouvoir jouer son
 animation de réduction ; ces transitions sont rétablies à la fermeture de
-Muelle.
+Nikao Dock.
 
 ## Installer
 
-**[Télécharger Muelle-Setup.exe](https://github.com/jhosepqr/Nikao-Dock/releases/download/v0.1.22-glass.3/Muelle-Setup.exe)**
+**[Télécharger Nikao-Dock-Setup.exe](https://github.com/jhosepqr/Nikao-Dock/releases/download/v0.1.22-glass.3/Nikao-Dock-Setup.exe)**
 (Windows 10 version 1903 ou ultérieure, ou Windows 11 ; 64 bits) ou choisissez
 une version dans les [Releases](https://github.com/jhosepqr/Nikao-Dock/releases).
 
-1. Lancez `Muelle-Setup.exe`. Il s'installe pour votre seul compte : sans
+1. Lancez `Nikao-Dock-Setup.exe`. Il s'installe pour votre seul compte : sans
    droits d'administrateur, sans assistant, en deux secondes environ.
-2. Muelle est récent : SmartScreen peut ne pas encore le reconnaître et
+2. Nikao Dock est récent : SmartScreen peut ne pas encore le reconnaître et
    indiquer qu'il a protégé votre ordinateur. Choisissez **Informations
    complémentaires → Exécuter quand même**. Voir la
    [politique de signature du code](https://muelle.crafter.run/code-signing-policy).
-3. Ouvrez **Muelle** depuis le menu Démarrer, puis choisissez **Dock** pour
+3. Ouvrez **Nikao Dock** depuis le menu Démarrer, puis choisissez **Dock** pour
    personnaliser le dock et la barre de menus.
+
+Une installation **Muelle** plus ancienne est une autre application. L'installateur
+coupe son démarrage automatique et désinstalle cette entrée sans effacer les
+éléments épinglés. Si **Muelle** apparaît encore dans Applications, désinstallez-le
+sans cocher la suppression des données. Les éléments épinglés et les réglages sont
+copiés vers `%APPDATA%\Nikao Dock`.
 
 ## Essayer sous Windows
 
@@ -109,7 +116,7 @@ cargo run -p muelle
 ```
 
 Le dock masque la barre des tâches tant qu'il tourne. Appuyez sur **Ctrl+C**
-dans le terminal pour le quitter ; Muelle devrait rétablir la barre des tâches
+dans le terminal pour le quitter ; Nikao Dock devrait rétablir la barre des tâches
 automatiquement. S'il faut la rétablir à la main :
 
 ```powershell
@@ -160,24 +167,24 @@ pnpm build
 
 ## Confidentialité
 
-Muelle ne collecte aucune donnée, n'a pas de télémétrie et n'envoie jamais rien
+Nikao Dock ne collecte aucune donnée, n'a pas de télémétrie et n'envoie jamais rien
 au projet. Il fait deux sortes de requêtes réseau, toutes deux facultatives :
 
 - **Mises à jour :** Réglages demande à GitHub Releases s'il existe une
   nouvelle version à son ouverture, et une fois par jour, quelques minutes
-  après l'allumage de l'ordinateur, Muelle fait de même en arrière-plan et
+  après l'allumage de l'ordinateur, Nikao Dock fait de même en arrière-plan et
   installe ce qu'il trouve (le dock lui-même n'utilise jamais le réseau).
   Désactivez l'installation dans Réglages → Système → *Installer
   automatiquement les mises à jour*, ou le tout avec *Rechercher
   automatiquement les mises à jour*.
 - **Utilisation des fournisseurs d'IA :** tant qu'un client pris en charge
-  tourne, Muelle lit sa connexion locale existante et demande à ce fournisseur
+  tourne, Nikao Dock lit sa connexion locale existante et demande à ce fournisseur
   les limites disponibles de l'abonnement toutes les cinq minutes tant que
   l'îlot est visible, ou quand vous appuyez sur Actualiser. Pour Gemini CLI et
   Antigravity, les quotas Gemini Pro et Flash s'affichent séparément quand ils
   sont disponibles ; Antigravity est interrogé via son service local. Les
-  identifiants restent en mémoire et ne sont jamais enregistrés par Muelle.
-  Pour Z.ai Coding Plan, Muelle lit la clé dans le fichier local `auth.json`
+  identifiants restent en mémoire et ne sont jamais enregistrés par Nikao Dock.
+  Pour Z.ai Coding Plan, Nikao Dock lit la clé dans le fichier local `auth.json`
   d'OpenCode ou dans `ZAI_API_KEY` / `ZHIPU_API_KEY`, puis l'envoie au service
   de quotas de Z.ai. Désactivez les requêtes dans Réglages → Barre de menus →
   *Afficher l'utilisation des fournisseurs d'IA*.

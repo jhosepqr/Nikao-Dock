@@ -2,7 +2,7 @@ name: Fork installer
 
 # Unsigned installer for this fork. The official Release workflow needs
 # SignPath and the minisign private key, which are not in this repository.
-# Pushing feat/glass-dock (or running this by hand) builds Muelle-Setup.exe,
+# Pushing feat/glass-dock (or running this by hand) builds Nikao-Dock-Setup.exe,
 # keeps it as an artifact, and publishes it as the pre-release
 # v0.1.22-glass.3. No updater manifest is uploaded.
 on:
@@ -70,20 +70,19 @@ jobs:
             throw 'muelle-settings.exe is missing the fork updater endpoint'
           }
 
-      - name: Collect Muelle-Setup.exe
+      - name: Collect Nikao-Dock-Setup.exe
         run: |
-          $version = (cargo metadata --format-version 1 --no-deps | ConvertFrom-Json).packages |
-            Where-Object name -eq 'muelle' | Select-Object -ExpandProperty version
-          $setup = "target/release/bundle/nsis/Muelle_${version}_x64-setup.exe"
-          if (-not (Test-Path -LiteralPath $setup)) { throw "installer not found: $setup" }
+          $found = @(Get-ChildItem -LiteralPath 'target/release/bundle/nsis' -Filter '*_x64-setup.exe' |
+            Where-Object { $_.Name -like 'Nikao Dock_*' })
+          if ($found.Count -ne 1) { throw "expected one Nikao Dock installer, found $($found.Count)" }
           New-Item -ItemType Directory -Force upload | Out-Null
-          Copy-Item -LiteralPath $setup upload/Muelle-Setup.exe
+          Copy-Item -LiteralPath $found[0].FullName upload/Nikao-Dock-Setup.exe
 
       - name: Upload the installer artifact
         uses: actions/upload-artifact@v7
         with:
-          name: Muelle-Setup
-          path: upload/Muelle-Setup.exe
+          name: Nikao-Dock-Setup
+          path: upload/Nikao-Dock-Setup.exe
           if-no-files-found: error
           retention-days: 90
 
@@ -95,7 +94,7 @@ jobs:
         timeout-minutes: 10
         run: |
           ./scripts/Assert-ReleaseAntivirus.ps1 -ReportDirectory antivirus-report -Path `
-            target/release/muelle-settings.exe,apps/settings/src-tauri/binaries/muelle-x86_64-pc-windows-msvc.exe,upload/Muelle-Setup.exe
+            target/release/muelle-settings.exe,apps/settings/src-tauri/binaries/muelle-x86_64-pc-windows-msvc.exe,upload/Nikao-Dock-Setup.exe
 
       - name: Keep antivirus verification evidence
         if: always()
@@ -112,18 +111,18 @@ jobs:
         run: |
           $ErrorActionPreference = 'Continue'
           $PSNativeCommandUseErrorActionPreference = $false
-          $url = "https://github.com/$env:GITHUB_REPOSITORY/releases/download/$env:GLASS_TAG/Muelle-Setup.exe"
+          $url = "https://github.com/$env:GITHUB_REPOSITORY/releases/download/$env:GLASS_TAG/Nikao-Dock-Setup.exe"
           @(
-            'Instalador sin firmar de feat/glass-dock. La lupa abre un panel tipo Spotlight arriba. El ícono de batería abre solo la batería, en un panel de vidrio bajo el ícono: porcentaje, carga, tiempo, ahorro de energía y modo de energía. Cerrados, esos paneles no usan CPU. El Wi-Fi y el centro de control siguen abriendo los ajustes rápidos de Windows; el volumen sigue abriendo el sonido.'
+            'Instalador sin firmar de feat/glass-dock. Esta compilación se llama Nikao Dock. La lupa abre un panel tipo Spotlight arriba. El ícono de batería abre solo la batería, en un panel de vidrio bajo el ícono. Cerrados, esos paneles no usan CPU. El Wi-Fi y el centro de control siguen abriendo los ajustes rápidos; el volumen sigue abriendo el sonido.'
             ''
             'No se actualiza solo al Muelle oficial de crafter-station. La próxima compilación se instala a mano. No incluye latest.json.'
             ''
-            'Se instala encima de la compilación anterior. No hace falta desinstalar: los pines y los ajustes quedan. Windows sigue mostrando la versión 0.1.22; el vidrio nuevo es el de este tag.'
+            'Es otra aplicación que la entrada "Muelle". El instalador apaga el inicio automático de Muelle, cierra ese dock y lo desinstala en silencio sin borrar %APPDATA%\Muelle. Al abrir Nikao Dock, copia pines y ajustes a %APPDATA%\Nikao Dock.'
             '1. Cerrá el dock si está abierto.'
-            '2. Descargá Muelle-Setup.exe. Si Edge avisa que no es habitual, abrí los puntos y elegí Conservar.'
+            '2. Descargá Nikao-Dock-Setup.exe. Si Edge avisa que no es habitual, abrí los puntos y elegí Conservar.'
             '3. Al abrirlo, si Windows dice que protegió tu PC: Más información > Ejecutar de todas formas.'
-            '4. La instalación no tiene asistente. Queda en %LOCALAPPDATA%\Programs\Muelle y abre el dock. Vuelve a prender el inicio con Windows; se apaga en Ajustes.'
-            '5. Si el instalador se queja, desinstalá Muelle desde Configuración > Aplicaciones sin marcar borrar datos, y volvé a correr este archivo.'
+            '4. La instalación no tiene asistente. Queda en %LOCALAPPDATA%\Programs\Nikao Dock y abre el dock. El inicio con Windows queda prendido; se apaga en Ajustes.'
+            '5. Si en Configuración > Aplicaciones sigue apareciendo "Muelle", desinstalalo sin marcar borrar datos. Tiene que quedar solo Nikao Dock.'
             ''
             $url
           ) | Set-Content -Encoding utf8NoBOM notes.md
@@ -134,10 +133,10 @@ jobs:
             if ($LASTEXITCODE) { throw "no se pudo reemplazar $env:GLASS_TAG" }
           }
           gh api --method DELETE "repos/$env:GITHUB_REPOSITORY/git/refs/tags/$env:GLASS_TAG"
-          gh release create $env:GLASS_TAG upload/Muelle-Setup.exe `
+          gh release create $env:GLASS_TAG upload/Nikao-Dock-Setup.exe `
             --repo $env:GITHUB_REPOSITORY `
             --prerelease `
-            --title "Muelle $env:GLASS_TAG" `
+            --title "Nikao Dock $env:GLASS_TAG" `
             --notes-file notes.md
           if ($LASTEXITCODE) { throw 'gh release create failed' }
           $url >> $env:GITHUB_STEP_SUMMARY

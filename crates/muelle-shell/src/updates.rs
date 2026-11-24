@@ -1,4 +1,4 @@
-//! When Muelle last looked for an update. Kept in `HKCU\Software\Muelle`
+//! When the dock last looked for an update. Kept in `HKCU\Software\Nikao Dock`
 //! (which the uninstaller removes), so it looks once a day however often the
 //! computer is restarted or the dock relaunched.
 
@@ -12,7 +12,7 @@ use windows::{
     core::{PCWSTR, w},
 };
 
-const MUELLE_KEY: PCWSTR = w!(r"Software\Muelle");
+const MUELLE_KEY: PCWSTR = w!(r"Software\Nikao Dock");
 const LAST_CHECK: PCWSTR = w!("LastUpdateCheck");
 
 /// How long until the next look is due, `every` after the last one: zero if

@@ -104,7 +104,11 @@ fn with_desktop<T>(
 
 fn cache_dir() -> Result<PathBuf, String> {
     env::var_os("LOCALAPPDATA")
-        .map(|root| PathBuf::from(root).join("Muelle").join("Wallpapers"))
+        .map(|root| {
+            PathBuf::from(root)
+                .join(muelle_config::DATA_DIR)
+                .join("Wallpapers")
+        })
         .ok_or_else(|| "The local application data folder is unavailable".into())
 }
 

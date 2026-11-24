@@ -31,7 +31,7 @@ const GHOST_STYLES: isize = (WS_EX_LAYERED.0 | WS_EX_TRANSPARENT.0) as isize;
 
 fn state_file() -> PathBuf {
     PathBuf::from(env::var_os("LOCALAPPDATA").unwrap_or_default())
-        .join("Muelle")
+        .join(muelle_config::DATA_DIR)
         .join("taskbar-original")
 }
 

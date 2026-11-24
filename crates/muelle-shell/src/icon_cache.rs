@@ -42,7 +42,7 @@ impl Default for IconCache {
     fn default() -> Self {
         Self::new(
             PathBuf::from(env::var_os("LOCALAPPDATA").unwrap_or_default())
-                .join("Muelle")
+                .join(muelle_config::DATA_DIR)
                 .join("icons"),
         )
     }

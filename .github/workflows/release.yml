@@ -140,7 +140,7 @@ jobs:
             -ProductionThumbprint $env:PRODUCTION_THUMBPRINT -ReportDirectory sign/verification-bundled `
             -Path target/release/muelle-settings.exe,apps/settings/src-tauri/binaries/muelle-x86_64-pc-windows-msvc.exe
           New-Item -ItemType Directory -Force sign/installer | Out-Null
-          Copy-Item "target/release/bundle/nsis/Muelle_${env:VERSION}_x64-setup.exe" sign/installer/Muelle-Setup.exe
+          Copy-Item "target/release/bundle/nsis/Nikao Dock_${env:VERSION}_x64-setup.exe" sign/installer/Muelle-Setup.exe
 
       - name: Upload the installer to sign
         if: env.SIGNING_MODE != 'Unsigned'
@@ -171,7 +171,7 @@ jobs:
         env:
           PRODUCTION_THUMBPRINT: ${{ vars.SIGNPATH_PRODUCTION_CERTIFICATE_THUMBPRINT }}
         run: |
-          $setup = (Resolve-Path "target/release/bundle/nsis").Path + "/Muelle_${env:VERSION}_x64-setup.exe"
+          $setup = (Resolve-Path "target/release/bundle/nsis").Path + "/Nikao Dock_${env:VERSION}_x64-setup.exe"
           Copy-Item sign/installer-signed/Muelle-Setup.exe $setup -Force
           ./scripts/Assert-Authenticode.ps1 -Mode $env:SIGNING_MODE `
             -ProductionThumbprint $env:PRODUCTION_THUMBPRINT -ReportDirectory sign/verification-installer -Path $setup
@@ -183,7 +183,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
-          $setup = (Resolve-Path "target/release/bundle/nsis").Path + "/Muelle_${env:VERSION}_x64-setup.exe"
+          $setup = (Resolve-Path "target/release/bundle/nsis").Path + "/Nikao Dock_${env:VERSION}_x64-setup.exe"
           Push-Location apps/settings
           pnpm tauri signer sign --app-version $env:VERSION $setup
           if ($LASTEXITCODE) { throw 'tauri signer sign failed' }
@@ -223,7 +223,7 @@ jobs:
         shell: pwsh
         run: |
           ./scripts/Assert-ReleaseAntivirus.ps1 -ReportDirectory antivirus-report -Path `
-            target/release/muelle-settings.exe,apps/settings/src-tauri/binaries/muelle-x86_64-pc-windows-msvc.exe,"target/release/bundle/nsis/Muelle_${env:VERSION}_x64-setup.exe"
+            target/release/muelle-settings.exe,apps/settings/src-tauri/binaries/muelle-x86_64-pc-windows-msvc.exe,"target/release/bundle/nsis/Nikao Dock_${env:VERSION}_x64-setup.exe"
 
       - name: Keep antivirus verification evidence
         if: always() && env.SIGNING_MODE != '' && env.SIGNING_MODE != 'Test'
@@ -241,7 +241,7 @@ jobs:
         shell: pwsh
         run: |
           $nsis = 'target/release/bundle/nsis'
-          $setup = "Muelle_${env:VERSION}_x64-setup.exe"
+          $setup = "Nikao Dock_${env:VERSION}_x64-setup.exe"
           $signature = Get-Content "$nsis/$setup.sig" -Raw
           $repo = "https://github.com/$env:GITHUB_REPOSITORY"
           $manifest = [ordered]@{
@@ -251,7 +251,7 @@ jobs:
             platforms = [ordered]@{
               'windows-x86_64' = [ordered]@{
                 signature = $signature.Trim()
-                url       = "$repo/releases/download/$env:GITHUB_REF_NAME/$setup"
+                url       = "$repo/releases/download/$env:GITHUB_REF_NAME/$([uri]::EscapeDataString($setup))"
               }
             }
           }
@@ -278,4 +278,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create $env:GITHUB_REF_NAME (Get-ChildItem upload).FullName `
-            --draft --notes-file notes.md --title "Muelle $env:GITHUB_REF_NAME"
+            --draft --notes-file notes.md --title "Nikao Dock $env:GITHUB_REF_NAME"

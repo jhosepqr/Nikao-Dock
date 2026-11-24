@@ -241,7 +241,7 @@ fn create(anchor: POINT) -> Result<(), windows::core::Error> {
         CreateWindowExW(
             WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
             class,
-            w!("Muelle"),
+            w!("Nikao Dock"),
             WS_POPUP | WS_CLIPCHILDREN,
             anchor.x,
             anchor.y,

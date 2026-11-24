@@ -4,7 +4,7 @@
 //! or delay. The task uses the interactive user's logon trigger. Registration
 //! uses the Task Scheduler COM API with a Run entry as fallback.
 //!
-//! Whether autostart is on is also written to `HKCU\Software\Muelle`,
+//! Whether autostart is on is also written to `HKCU\Software\Nikao Dock`,
 //! because task registrations cannot be read quickly and the watchdog has
 //! to know it instantly while Windows shuts down.
 
@@ -44,9 +44,11 @@ use windows::{
     core::{BSTR, HSTRING, Interface, Owned, PCWSTR, PWSTR, w},
 };
 
-const RUN_VALUE: PCWSTR = w!("Muelle");
+const RUN_VALUE: PCWSTR = w!("Nikao Dock");
+/// The Run value and task name used before this fork was renamed.
+const LEGACY_RUN_VALUE: PCWSTR = w!("Muelle");
 const RUN_KEY: PCWSTR = w!(r"Software\Microsoft\Windows\CurrentVersion\Run");
-const MUELLE_KEY: PCWSTR = w!(r"Software\Muelle");
+const MUELLE_KEY: PCWSTR = w!(r"Software\Nikao Dock");
 const MARKER_VALUE: PCWSTR = w!("Autostart");
 
 /// Starts `exe` at every sign-in, or stops doing so (`None`).
@@ -65,18 +67,21 @@ fn set_locked(exe: Option<&str>, sid: &str) -> windows::core::Result<()> {
                 ));
                 set_run_value(exe)?;
                 set_marker(true)?;
+                delete_named_run_value(LEGACY_RUN_VALUE)?;
             } else {
                 // Save the fast shutdown marker before retiring the fallback.
                 set_marker(true)?;
-                delete_legacy_task(sid)?;
                 delete_run_value()?;
             }
+            // The previous product's task would start a second dock.
+            delete_legacy_task(sid)?;
         }
         None => {
             // Attempt both removals, reporting errors instead of claiming the
             // feature is off while a task can still launch the dock.
             let tasks = with_tasks(|folder| {
                 delete_task(folder, &task_name(sid))?;
+                delete_task(folder, &previous_product_task_name(sid))?;
                 delete_matching_legacy_task(folder, sid)
             });
             let registry = delete_run_value();
@@ -357,6 +362,10 @@ fn run_approved() -> bool {
 }
 
 fn task_name(sid: &str) -> BSTR {
+    BSTR::from(format!("Nikao Dock ({sid})"))
+}
+
+fn previous_product_task_name(sid: &str) -> BSTR {
     BSTR::from(format!("Muelle ({sid})"))
 }
 
@@ -426,7 +435,10 @@ fn task_missing(error: &windows::core::Error) -> bool {
 }
 
 fn delete_legacy_task(sid: &str) -> windows::core::Result<()> {
-    with_tasks(|folder| delete_matching_legacy_task(folder, sid))
+    with_tasks(|folder| {
+        delete_task(folder, &previous_product_task_name(sid))?;
+        delete_matching_legacy_task(folder, sid)
+    })
 }
 
 fn delete_matching_legacy_task(folder: &ITaskFolder, sid: &str) -> windows::core::Result<()> {
@@ -459,8 +471,8 @@ fn task_xml(user: &str, exe: &str) -> String {
         r#"<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
-    <Author>Muelle</Author>
-    <Description>Starts the Muelle dock when you sign in. Turn it off in Muelle Settings.</Description>
+    <Author>Nikao Dock</Author>
+    <Description>Starts Nikao Dock when you sign in. Turn it off in Nikao Dock Settings.</Description>
   </RegistrationInfo>
   <Triggers>
     <LogonTrigger>
@@ -578,8 +590,15 @@ fn set_run_value(exe: &str) -> windows::core::Result<()> {
 }
 
 fn delete_run_value() -> windows::core::Result<()> {
+    let current = delete_named_run_value(RUN_VALUE);
+    let legacy = delete_named_run_value(LEGACY_RUN_VALUE);
+    current?;
+    legacy
+}
+
+fn delete_named_run_value(name: PCWSTR) -> windows::core::Result<()> {
     // SAFETY: Deletes a value of the open key.
-    with_run_key(|key| match unsafe { RegDeleteValueW(key, RUN_VALUE) } {
+    with_run_key(|key| match unsafe { RegDeleteValueW(key, name) } {
         // Removing a value that does not exist is not an error.
         WIN32_ERROR(2) => WIN32_ERROR(0),
         other => other,

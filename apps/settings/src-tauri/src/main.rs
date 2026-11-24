@@ -183,7 +183,8 @@ struct Progress {
     total: Option<u64>,
 }
 
-const REPOSITORY: &str = "https://github.com/jhosepqr/Nikao-Dock";
+/// Stable owner URL. GitHub redirects it when the repository is renamed.
+const REPOSITORY: &str = "https://github.com/jhosepqr/macos";
 const RELEASES: &str = "https://github.com/jhosepqr/Nikao-Dock/releases/";
 
 /// The update manifest is not signed (only the installer is), so the only

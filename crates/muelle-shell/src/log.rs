@@ -36,8 +36,11 @@ pub fn line(text: &str) {
         thread::Builder::new()
             .name("muelle-log".into())
             .spawn(move || {
-                let path = env::var_os("LOCALAPPDATA")
-                    .map(|folder| Path::new(&folder).join("Muelle").join("muelle.log"));
+                let path = env::var_os("LOCALAPPDATA").map(|folder| {
+                    Path::new(&folder)
+                        .join(muelle_config::DATA_DIR)
+                        .join("muelle.log")
+                });
                 for message in receiver {
                     match message {
                         Message::Line(now, text) => {

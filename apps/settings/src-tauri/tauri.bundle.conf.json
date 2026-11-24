@@ -5,8 +5,8 @@
     "targets": [
       "nsis"
     ],
-    "publisher": "Muelle",
-    "homepage": "https://github.com/jhosepqr/Nikao-Dock",
+    "publisher": "Nikao Dock",
+    "homepage": "https://github.com/jhosepqr/macos",
     "shortDescription": "Dock estilo macOS para Windows",
     "category": "Utility",
     "externalBin": [

@@ -165,7 +165,7 @@ pub fn run() -> Result<()> {
             CreateWindowExW(
                 base | extra,
                 class,
-                w!("Muelle"),
+                w!("Nikao Dock"),
                 WS_POPUP,
                 0,
                 0,

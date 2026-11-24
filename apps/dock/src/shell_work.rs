@@ -230,7 +230,7 @@ fn notify_failure(message: &'static str) {
                 MessageBoxW(
                     None,
                     &windows::core::HSTRING::from(message),
-                    windows::core::w!("Muelle"),
+                    windows::core::w!("Nikao Dock"),
                     MB_OK | MB_ICONWARNING,
                 );
             }

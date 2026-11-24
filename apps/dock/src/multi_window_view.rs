@@ -289,7 +289,7 @@ impl MultiWindowView {
             CreateWindowExW(
                 WS_EX_NOREDIRECTIONBITMAP | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
                 class,
-                w!("Muelle window previews"),
+                w!("Nikao Dock window previews"),
                 WS_POPUP,
                 0,
                 0,

@@ -520,7 +520,11 @@ pub fn kept_shortcut_for(id: &str) -> Option<String> {
 /// elsewhere (the desktop, Downloads), as the taskbar keeps `User Pinned`:
 /// the pin keeps working if the original is moved or deleted.
 fn kept_folder() -> Option<PathBuf> {
-    Some(PathBuf::from(env::var_os("APPDATA")?).join("Muelle\\Pins"))
+    Some(
+        PathBuf::from(env::var_os("APPDATA")?)
+            .join(muelle_config::DATA_DIR)
+            .join("Pins"),
+    )
 }
 
 fn taskbar_folder() -> Option<PathBuf> {

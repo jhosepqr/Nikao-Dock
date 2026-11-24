@@ -788,7 +788,7 @@ fn create_window(dark: bool) -> Result<HWND> {
         let hwnd = CreateWindowExW(
             WS_EX_NOREDIRECTIONBITMAP | WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
             class,
-            w!("Muelle"),
+            w!("Nikao Dock"),
             WS_POPUP,
             0,
             0,
