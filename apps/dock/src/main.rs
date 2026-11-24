@@ -15,6 +15,7 @@ mod accessories;
 mod app;
 mod appearance;
 mod assets;
+mod battery;
 mod bluetooth;
 mod drop;
 mod edge_watch;

@@ -20,6 +20,12 @@ copia la sección de la versión que se publica a la release de GitHub.
 - The menu-bar search button opens a Spotlight-style panel under the bar
   (apps and settings, arrow keys, Enter, Esc). Windows Search remains available
   in Settings. The panel does no work while it is closed.
+- The menu-bar battery icon opens a battery panel under the icon (percent,
+  charging or discharging, time remaining or to full, energy saver and power
+  mode, plus a link to Windows battery settings). It reads power status when
+  the panel opens and when Windows sends a power event, and does nothing while
+  closed. Wi-Fi and the control-center icon still open Quick Settings; volume
+  still opens the sound flyout.
 
 ### Español
 
@@ -35,6 +41,12 @@ copia la sección de la versión que se publica a la release de GitHub.
 - El botón de búsqueda de la barra abre un panel tipo Spotlight debajo de la
   barra (aplicaciones y ajustes, flechas, Enter, Esc). La búsqueda de Windows
   sigue disponible en Ajustes. Cerrado, el panel no hace nada.
+- El ícono de batería de la barra abre un panel de batería debajo del ícono
+  (porcentaje, carga o descarga, tiempo restante o hasta completar, ahorro de
+  energía y modo de energía, y un enlace a la configuración de batería de
+  Windows). Lee el estado al abrirse y cuando Windows avisa un cambio de
+  energía, y cerrado no hace nada. El Wi-Fi y el centro de control siguen
+  abriendo los ajustes rápidos; el volumen sigue abriendo el panel de sonido.
 
 ## [0.1.22]
 

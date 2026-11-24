@@ -1,9 +1,10 @@
 //! Minimal macOS-style menu bar across the top of the screen.
 //!
 //! Hiding the Windows taskbar also hides its clock and status area; this bar
-//! brings them back: the name of the app in front, the battery, a control
-//! center button (opens the Windows quick settings: network, volume,
-//! brightness) and the date and time (opens the notification center).
+//! brings them back: the name of the app in front, the battery (its own
+//! panel), a control center button (opens the Windows quick settings:
+//! network, volume, brightness) and the date and time (opens the
+//! notification center).
 //!
 //! Cost while idle: one timer that fires once a minute, on the minute, to
 //! redraw the clock. Everything else is event-driven.
@@ -167,6 +168,8 @@ pub(crate) mod glyph {
 enum Action {
     AccessoryIndicator,
     QuickSettings,
+    /// The battery icon and its percentage. Not Quick Settings.
+    Battery,
     Notifications,
     Sound,
     Search,
@@ -1865,6 +1868,10 @@ impl MenuBar {
         match hit.map(|(_, _, action)| *action) {
             Some(Action::AccessoryIndicator) => {}
             Some(Action::QuickSettings) => launcher::open_quick_settings(),
+            Some(Action::Battery) => crate::battery::activate(POINT {
+                x: anchor.0,
+                y: anchor.1,
+            }),
             Some(Action::Notifications) => launcher::open_notifications(),
             Some(Action::Sound) => launcher::open_sound(),
             Some(Action::Search) => crate::spotlight::activate(POINT {
@@ -2175,7 +2182,7 @@ impl MenuBar {
             }
             items.push((
                 gfx.battery_brush(battery.percent, battery.charging, battery.saver, scale, ink)?,
-                Action::QuickSettings,
+                Action::Battery,
             ));
         }
         let mut accessory_labels = Vec::new();
@@ -4205,13 +4212,13 @@ mod island_tests {
                     usize::from(on)
                 );
             }
-            // The battery is the last QuickSettings zone. Its percentage must
-            // add label width, without introducing another clickable control.
+            // The battery icon and its percentage are one control, separate
+            // from Quick Settings. The percentage adds width to that control.
             let battery = bar
                 .zones
                 .iter()
                 .rev()
-                .find(|(_, _, a)| *a == Action::QuickSettings)
+                .find(|(_, _, a)| *a == Action::Battery)
                 .context("battery zone")?;
             battery_width[usize::from(look.status.battery_percentage)] = battery.1 - battery.0;
         }
@@ -4225,6 +4232,11 @@ mod island_tests {
                 .filter(|(_, _, a)| *a == Action::QuickSettings)
                 .count(),
             2
+        );
+        assert!(
+            bar.zones
+                .iter()
+                .all(|(_, _, action)| *action != Action::Battery)
         );
 
         // The native registry handler reads the real Windows values without

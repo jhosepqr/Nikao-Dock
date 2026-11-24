@@ -114,7 +114,7 @@ jobs:
           $PSNativeCommandUseErrorActionPreference = $false
           $url = "https://github.com/$env:GITHUB_REPOSITORY/releases/download/$env:GLASS_TAG/Muelle-Setup.exe"
           @(
-            'Instalador sin firmar de feat/glass-dock. La lupa de la barra abre un panel tipo Spotlight arriba, sobre las aplicaciones del menú Inicio y algunas páginas de Configuración. En Ajustes se puede volver a la búsqueda de Windows. Cerrado, el panel no usa CPU. El vidrio sigue siendo el desenfoque en vivo de la compilación anterior.'
+            'Instalador sin firmar de feat/glass-dock. La lupa abre un panel tipo Spotlight arriba. El ícono de batería abre solo la batería, en un panel de vidrio bajo el ícono: porcentaje, carga, tiempo, ahorro de energía y modo de energía. Cerrados, esos paneles no usan CPU. El Wi-Fi y el centro de control siguen abriendo los ajustes rápidos de Windows; el volumen sigue abriendo el sonido.'
             ''
             'No se actualiza solo al Muelle oficial de crafter-station. La próxima compilación se instala a mano. No incluye latest.json.'
             ''
