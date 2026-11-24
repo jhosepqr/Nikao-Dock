@@ -1,5 +1,13 @@
 import type { CSSProperties, ReactNode } from "react";
-import type { Appearance, DockDensity, DockPosition, GenieSpeed, IslandStyle } from "./config";
+import {
+  GLASS_BLUR_DEFAULT,
+  GLASS_TRANSPARENCY_DEFAULT,
+  type Appearance,
+  type DockDensity,
+  type DockPosition,
+  type GenieSpeed,
+  type IslandStyle,
+} from "./config";
 
 const PATHS = {
   size: <><rect x="3" y="9" width="6" height="6" rx="1.5" /><rect x="13" y="5" width="9" height="14" rx="2" /></>,
@@ -60,18 +68,23 @@ export function DockPreview({ position, iconSize, wallpaper, density = "normal" 
 
 type Theme = Exclude<Appearance, "auto">;
 
+/** Same curve as `glass_tint_alpha` in the dock: 235, then 50 at 65, 35 at 80, 15 at 100. */
+function glassTintAlpha(transparency: number): number {
+  const level = Math.min(100, Math.max(0, transparency));
+  return level <= 60 ? 235 - 3 * level : 115 - level;
+}
+
 function glassPreviewStyle(transparency?: number, blur?: number): CSSProperties | undefined {
   if (transparency === undefined && blur === undefined) return undefined;
-  const t = Math.min(100, Math.max(0, transparency ?? 65));
-  const b = Math.min(100, Math.max(0, blur ?? 100));
-  const tintAlpha = 235 - 2.15 * t;
+  const tintAlpha = glassTintAlpha(transparency ?? GLASS_TRANSPARENCY_DEFAULT);
+  const b = Math.min(100, Math.max(0, blur ?? GLASS_BLUR_DEFAULT));
   const dockAlpha = tintAlpha / 255;
-  const barAlpha = Math.min(235, Math.max(110, tintAlpha + 30)) / 255;
-  const blurPx = (b / 100) * 8;
-  const saturate = 1 + 0.6 * (b / 100);
+  const barAlpha = Math.min(235, Math.max(64, tintAlpha + 24)) / 255;
+  const blurPx = (b / 100) * 18;
+  const saturate = 1.15 + 0.85 * (b / 100);
   return {
-    "--dock": `rgba(250, 251, 255, ${dockAlpha.toFixed(2)})`,
-    "--bar": `rgba(250, 251, 255, ${barAlpha.toFixed(2)})`,
+    "--dock": `rgba(255, 255, 255, ${dockAlpha.toFixed(2)})`,
+    "--bar": `rgba(255, 255, 255, ${barAlpha.toFixed(2)})`,
     "--blur": `blur(${blurPx.toFixed(1)}px) saturate(${saturate.toFixed(2)})`,
   } as CSSProperties;
 }

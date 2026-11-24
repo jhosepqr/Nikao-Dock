@@ -33,7 +33,7 @@ const base = {
   showDownloads: true,
   showOtherWorkspaces: false,
   menuBarIslandStyle: "notch", checkUpdates: false, appearance: "glass",
-  glassTransparency: 65, glassBlur: 100,
+  glassTransparency: 80, glassBlur: 100,
   pinned: [], recent: [], shortcutsFolder: null,
 };
 const settle = async () => { for (let i = 0; i < 12; i++) await Promise.resolve(); };
@@ -450,14 +450,14 @@ test("glass sliders render only for Glass and save only the changed level", asyn
     const controls = [...elements(view.body())];
     const transparency = controls.find((node) => node.props.label === texts.en.glassTransparency && "value" in node.props);
     const blur = controls.find((node) => node.props.label === texts.en.glassBlur && "value" in node.props);
-    assert.equal(transparency.props.value, 65);
+    assert.equal(transparency.props.value, 80);
     assert.equal(transparency.props.unit, "%");
     assert.equal(blur.props.value, 100);
     assert.equal(blur.props.unit, "%");
-    view.change(texts.en.glassTransparency, 80);
+    view.change(texts.en.glassTransparency, 50);
     view.fire(60);
     await settle();
-    assert.deepEqual(view.calls, [{ glassTransparency: 80 }]);
+    assert.deepEqual(view.calls, [{ glassTransparency: 50 }]);
     view.change(texts.en.glassBlur, 40);
     view.fire(60);
     await settle();

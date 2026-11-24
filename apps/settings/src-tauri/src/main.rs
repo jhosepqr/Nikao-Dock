@@ -183,7 +183,8 @@ struct Progress {
     total: Option<u64>,
 }
 
-const RELEASES: &str = "https://github.com/crafter-station/Muelle/releases/";
+const REPOSITORY: &str = "https://github.com/jhosepqr/Nikao-Dock";
+const RELEASES: &str = "https://github.com/jhosepqr/Nikao-Dock/releases/";
 
 /// The update manifest is not signed (only the installer is), so the only
 /// link it may open is a release page of this repository.
@@ -203,8 +204,7 @@ fn open_release_notes(url: String) -> Result<(), String> {
 #[tauri::command]
 async fn open_repository() -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(|| {
-        launcher::open("https://github.com/crafter-station/Muelle")
-            .map_err(|error| error.to_string())
+        launcher::open(REPOSITORY).map_err(|error| error.to_string())
     })
     .await
     .map_err(|error| error.to_string())?

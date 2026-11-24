@@ -3574,14 +3574,14 @@ fn island_tint(look: appearance::Look) -> Color {
         Material::Glass => {
             if look.glass {
                 let alpha = appearance::glass_tint_alpha(look.transparency)
-                    .saturating_add(55)
-                    .clamp(140, 235);
-                rgba(250, 251, 255, alpha)
+                    .saturating_add(36)
+                    .clamp(80, 200);
+                rgba(255, 255, 255, alpha)
             } else if look.translucent {
                 let alpha = appearance::glass_unblurred_tint_alpha(look.transparency)
-                    .saturating_add(45)
-                    .min(235);
-                rgba(250, 251, 255, alpha)
+                    .saturating_add(30)
+                    .min(220);
+                rgba(255, 255, 255, alpha)
             } else {
                 rgba(236, 238, 242, 255)
             }
@@ -3691,7 +3691,7 @@ fn bubble_surface(
 
     let tint = island_tint(look.surface());
     let border = (look.material == Material::Glass && (look.glass || look.translucent))
-        .then_some(rgba(255, 255, 255, 130));
+        .then_some(rgba(255, 255, 255, 230));
     if let Some(opacity) = host_backdrop_opacity(look) {
         let glass = c.CreateContainerVisual()?;
         glass.SetSize(size)?;
@@ -5521,10 +5521,10 @@ mod mascot_tests {
             light: true,
             glass: true,
             translucent: true,
-            transparency: 65,
+            transparency: 80,
             blur: 100,
         });
-        assert_eq!(glass_default, rgba(250, 251, 255, 150));
+        assert_eq!(glass_default, rgba(255, 255, 255, 80));
 
         let glass_clear = island_tint(appearance::Look {
             material: Material::Glass,
@@ -5534,17 +5534,17 @@ mod mascot_tests {
             transparency: 100,
             blur: 100,
         });
-        assert_eq!(glass_clear, rgba(250, 251, 255, 140));
+        assert_eq!(glass_clear, rgba(255, 255, 255, 80));
 
         let glass_win10 = island_tint(appearance::Look {
             material: Material::Glass,
             light: true,
             glass: false,
             translucent: true,
-            transparency: 65,
+            transparency: 80,
             blur: 100,
         });
-        assert_eq!(glass_win10, rgba(250, 251, 255, 195));
+        assert_eq!(glass_win10, rgba(255, 255, 255, 180));
 
         let glass_solid = island_tint(appearance::Look {
             material: Material::Glass,

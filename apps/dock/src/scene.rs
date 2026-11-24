@@ -43,8 +43,12 @@ pub struct Theme {
     /// Folders and window cards hold text: a clear dock still gets a
     /// panel that keeps it readable.
     panel_tint: Color,
-    /// Top of the light that falls on the glass, fading by the middle.
+    /// Top of the light that falls on the glass.
     sheen: u8,
+    /// Where that light has faded out, as a fraction of the height.
+    sheen_end: f32,
+    /// A short bright lip at the top edge, instead of a wash down the pill.
+    specular: bool,
     /// The rim's brightness at its corners and sides (see `GlassSurface`).
     rim: [u8; 4],
     separator: Color,
@@ -63,17 +67,17 @@ const AURORA: [Color; 3] = [
     rgba(246, 96, 182, 132),
 ];
 
-/// Glass tint and backdrop strength, with a slight cool cast so light glass
-/// reads cleanly over both warm and cool wallpapers.
+/// Glass tint and backdrop strength. White at a low alpha lifts the live
+/// blur without turning a dark wallpaper into a gray slab.
 fn glass_fill(transparency: u8, blur: u8, glass: bool, translucent: bool) -> (Color, f32) {
     if glass {
         (
-            rgba(250, 251, 255, glass_tint_alpha(transparency)),
+            rgba(255, 255, 255, glass_tint_alpha(transparency)),
             glass_backdrop_opacity(blur),
         )
     } else if translucent {
         (
-            rgba(250, 251, 255, glass_unblurred_tint_alpha(transparency)),
+            rgba(255, 255, 255, glass_unblurred_tint_alpha(transparency)),
             0.0,
         )
     } else {
@@ -81,15 +85,15 @@ fn glass_fill(transparency: u8, blur: u8, glass: bool, translucent: bool) -> (Co
     }
 }
 
-/// A see-through bar tint, slightly denser than the dock with a 110 floor so
-/// the clock and status items stay readable over any wallpaper. A solid
+/// A see-through bar tint, a little denser than the dock so the clock stays
+/// readable, without the old 110 floor that painted the bar gray. A solid
 /// fallback stays opaque.
 fn denser_bar_tint(tint: Color) -> Color {
     if tint.A == 255 {
         tint
     } else {
         Color {
-            A: tint.A.saturating_add(30).clamp(110, 235),
+            A: tint.A.saturating_add(24).clamp(64, 235),
             ..tint
         }
     }
@@ -122,12 +126,14 @@ impl Theme {
             Material::Aurora => (pick(rgba(12, 16, 42, 92), rgba(22, 22, 50, 255)), 1.0),
             Material::Glass => glass_fill(transparency, blur, glass, translucent),
         };
-        let (sheen, rim) = match material {
-            Material::Standard | Material::Aurora => (38, [150, 40, 30, 105]),
-            Material::Frosted => (70, [210, 70, 55, 150]),
+        let (sheen, sheen_end, specular, rim) = match material {
+            Material::Standard | Material::Aurora => (38, 0.55, false, [150, 40, 30, 105]),
+            Material::Frosted => (70, 0.55, false, [210, 70, 55, 150]),
             // All the light is on the edge, like a lens.
-            Material::Clear => (56, [235, 80, 60, 190]),
-            Material::Glass => (40, [170, 90, 70, 130]),
+            Material::Clear => (56, 0.55, false, [235, 80, 60, 190]),
+            // A bright hairline and a short lip. The mid stops used to fall
+            // to 70 and disappear into the frost.
+            Material::Glass => (220, 0.12, true, [255, 230, 210, 250]),
         };
         let panel_tint = match material {
             Material::Clear => pick(rgba(24, 24, 28, 150), tint),
@@ -138,9 +144,10 @@ impl Theme {
             Material::Standard | Material::Frosted | Material::Aurora => tint,
         };
         // Light hairline equivalent to rgba(255,255,255,110) over rgba(0,0,0,28),
-        // readable over both dark and bright wallpapers.
+        // readable over both dark and bright wallpapers. Glass uses a white
+        // scratch so the divider does not add another gray stripe.
         let separator = match material {
-            Material::Glass if glass || translucent => rgba(223, 223, 223, 126),
+            Material::Glass if glass || translucent => rgba(255, 255, 255, 140),
             Material::Glass => rgba(0, 0, 0, 42),
             Material::Standard | Material::Frosted | Material::Clear | Material::Aurora => {
                 if light {
@@ -185,6 +192,8 @@ impl Theme {
             glow: (material == Material::Aurora).then_some(AURORA),
             panel_tint,
             sheen,
+            sheen_end,
+            specular,
             rim,
             separator,
             shadow,
@@ -214,9 +223,14 @@ impl Theme {
 
     /// Brushes that fill a surface of this theme, bottom first: what is
     /// behind it (with glass), the tint, and Aurora's lights. The opacity is
-    /// for that sprite. Blur intensity is the backdrop sprite's opacity: the
-    /// window is per-pixel transparent, so a partial backdrop cross-fades the
-    /// sharp desktop with the system blur.
+    /// for that sprite.
+    ///
+    /// The host-backdrop brush is the live Desktop Window Manager sample of
+    /// whatever is behind the window (wallpaper, windows, animation). It is
+    /// not a snapshot. Blur intensity scales that sprite's opacity: the window
+    /// is per-pixel transparent, so a partial backdrop cross-fades the sharp
+    /// desktop with the system blur. At the default of 100 the sprite is
+    /// fully there and the tint is only a light frost over it.
     pub(crate) fn fills(&self, gfx: &Gfx) -> Result<Vec<(CompositionBrush, f32)>> {
         let c = &gfx.compositor;
         let mut fills = Vec::with_capacity(4);
@@ -308,8 +322,17 @@ impl GlassSurface {
         stops.Append(
             &c.CreateColorGradientStopWithOffsetAndColor(0.0, rgba(255, 255, 255, theme.sheen))?,
         )?;
-        stops
-            .Append(&c.CreateColorGradientStopWithOffsetAndColor(0.55, rgba(255, 255, 255, 0))?)?;
+        if theme.specular {
+            let lip = theme.sheen / 4;
+            stops.Append(&c.CreateColorGradientStopWithOffsetAndColor(
+                theme.sheen_end * 0.3,
+                rgba(255, 255, 255, lip),
+            )?)?;
+        }
+        stops.Append(&c.CreateColorGradientStopWithOffsetAndColor(
+            theme.sheen_end,
+            rgba(255, 255, 255, 0),
+        )?)?;
 
         let mut fills = theme.fills(gfx)?;
         fills.push((sheen.cast()?, 1.0));
@@ -1060,22 +1083,29 @@ mod theme_tests {
 
     #[test]
     fn glass_theme_uses_tuned_light_glass_visuals_and_panel_floor() {
-        let default = Theme::new(glass_look(true, true, 65, 100));
-        assert_eq!(default.tint, rgba(250, 251, 255, 95));
+        let default = Theme::new(glass_look(true, true, 80, 100));
+        assert_eq!(default.tint, rgba(255, 255, 255, 35));
         assert_eq!(default.backdrop_opacity, 1.0);
-        assert_eq!(default.sheen, 40);
-        assert_eq!(default.rim, [170, 90, 70, 130]);
+        assert_eq!(default.sheen, 220);
+        assert_eq!(default.sheen_end, 0.12);
+        assert!(default.specular);
+        assert_eq!(default.rim, [255, 230, 210, 250]);
         assert_eq!(default.shadow, rgba(0, 0, 0, 40));
         assert_eq!(default.shadow_blur, 30.0);
         assert_eq!(default.shadow_offset, 6.0);
         assert_eq!(default.indicator, rgba(0, 0, 0, 140));
         assert_eq!(default.indicator_size, 3.5);
         assert_eq!(default.corner_radius_ratio, 0.32);
-        assert_eq!(default.separator, rgba(223, 223, 223, 126));
-        assert_eq!(default.panel_tint, rgba(250, 251, 255, 150));
+        assert_eq!(default.separator, rgba(255, 255, 255, 140));
+        assert_eq!(default.panel_tint, rgba(255, 255, 255, 150));
+
+        // The value glass.1 wrote into existing files. It must not come back
+        // as the old alpha-95 wash.
+        let shipped = Theme::new(glass_look(true, true, 65, 100));
+        assert_eq!(shipped.tint.A, 50);
 
         let clear = Theme::new(glass_look(true, true, 100, 100));
-        assert_eq!(clear.tint.A, 20);
+        assert_eq!(clear.tint.A, 15);
         assert_eq!(clear.panel_tint.A, 150);
 
         let solid = Theme::new(glass_look(false, false, 65, 100));
@@ -1087,11 +1117,11 @@ mod theme_tests {
 
     #[test]
     fn glass_bar_keeps_readable_alpha_floor_and_solid_fallback() {
-        let default_bar = Theme::for_bar(glass_look(true, true, 65, 100));
-        assert_eq!(default_bar.tint, rgba(250, 251, 255, 125));
+        let default_bar = Theme::for_bar(glass_look(true, true, 80, 100));
+        assert_eq!(default_bar.tint, rgba(255, 255, 255, 64));
 
         let clear_bar = Theme::for_bar(glass_look(true, true, 100, 100));
-        assert_eq!(clear_bar.tint.A, 110);
+        assert_eq!(clear_bar.tint.A, 64);
 
         let opaque_bar = Theme::for_bar(glass_look(true, true, 0, 100));
         assert_eq!(opaque_bar.tint.A, 235);
@@ -1114,6 +1144,8 @@ mod theme_tests {
                 assert_eq!(theme.shadow_offset, 8.0);
                 assert_eq!(theme.indicator_size, 4.0);
                 assert_eq!(theme.corner_radius_ratio, 0.36);
+                assert_eq!(theme.sheen_end, 0.55);
+                assert!(!theme.specular);
             }
         }
     }

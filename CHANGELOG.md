@@ -11,8 +11,9 @@ copia la sección de la versión que se publica a la release de GitHub.
 ### English
 
 - New Glass theme (default), with transparency and blur controls in Settings:
-  light translucent glass over the blurred wallpaper, a thin light rim, a
-  soft shadow, subtle separators and smaller running-app dots. On Windows 10
+  light translucent glass over the live blurred wallpaper, a bright thin rim,
+  a short highlight along the top edge, a soft shadow, subtle separators and
+  smaller running-app dots. The default transparency is 80. On Windows 10
   it renders translucent glass without blur, and falls back to solid light
   when Windows transparency is off or energy saver is on. Existing configs on
   Automatic migrate to Glass once; choosing Automatic again keeps it.
@@ -20,10 +21,12 @@ copia la sección de la versión que se publica a la release de GitHub.
 ### Español
 
 - Nuevo tema Vidrio (predeterminado), con controles de transparencia y
-  desenfoque en Ajustes: vidrio claro translúcido sobre el fondo desenfocado,
-  borde fino y claro, sombra suave, separadores sutiles y puntos más pequeños
-  para las apps abiertas. En Windows 10 se dibuja translúcido sin desenfoque
-  y pasa a sólido claro si la transparencia de Windows está desactivada o el
+  desenfoque en Ajustes: vidrio claro translúcido sobre el fondo desenfocado
+  en vivo, borde fino y brillante, un brillo corto en el borde de arriba,
+  sombra suave, separadores sutiles y puntos más pequeños para las apps
+  abiertas. La transparencia predeterminada es 80. En Windows 10 se dibuja
+  translúcido sin desenfoque y pasa a sólido claro si la transparencia de
+  Windows está desactivada o el
   ahorro de energía está activo. Las configuraciones existentes en Automático
   pasan a Vidrio una sola vez; si se vuelve a elegir Automático, se conserva.
 
