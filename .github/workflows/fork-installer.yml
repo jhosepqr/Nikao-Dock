@@ -2,12 +2,12 @@ name: Fork installer
 
 # Unsigned installer for this fork. The official Release workflow needs
 # SignPath and the minisign private key, which are not in this repository.
-# Pushing feat/glass-dock (or running this by hand) builds Nikao-Dock-Setup.exe,
+# Pushing main (or running this by hand) builds Nikao-Dock-Setup.exe,
 # keeps it as an artifact, and publishes it as the pre-release
 # v0.1.22-glass.4. No updater manifest is uploaded.
 on:
   push:
-    branches: [feat/glass-dock]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -113,7 +113,7 @@ jobs:
           $PSNativeCommandUseErrorActionPreference = $false
           $url = "https://github.com/$env:GITHUB_REPOSITORY/releases/download/$env:GLASS_TAG/Nikao-Dock-Setup.exe"
           @(
-            'Instalador sin firmar de feat/glass-dock. Ícono nuevo de Nikao Dock. La lupa abre un panel tipo Spotlight arriba. El ícono de batería abre solo la batería, en un panel de vidrio bajo el ícono. Cerrados, esos paneles no usan CPU. El Wi-Fi y el centro de control siguen abriendo los ajustes rápidos; el volumen sigue abriendo el sonido.'
+            'Instalador sin firmar de main. Ícono nuevo de Nikao Dock. La lupa abre un panel tipo Spotlight arriba. El ícono de batería abre solo la batería, en un panel de vidrio bajo el ícono. Cerrados, esos paneles no usan CPU. El Wi-Fi y el centro de control siguen abriendo los ajustes rápidos; el volumen sigue abriendo el sonido.'
             ''
             'No se actualiza solo al Muelle oficial de crafter-station. La próxima compilación se instala a mano. No incluye latest.json.'
             ''

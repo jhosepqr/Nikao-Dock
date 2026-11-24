@@ -10,7 +10,7 @@
 
 [![Version](https://img.shields.io/github/v/release/jhosepqr/Nikao-Dock?include_prereleases&label=version)](https://github.com/jhosepqr/Nikao-Dock/releases)
 [![Downloads](https://img.shields.io/github/downloads/jhosepqr/Nikao-Dock/total)](https://github.com/jhosepqr/Nikao-Dock/releases)
-[![Build](https://img.shields.io/github/actions/workflow/status/jhosepqr/Nikao-Dock/fork-installer.yml?branch=feat%2Fglass-dock&label=build)](https://github.com/jhosepqr/Nikao-Dock/actions/workflows/fork-installer.yml)
+[![Build](https://img.shields.io/github/actions/workflow/status/jhosepqr/Nikao-Dock/fork-installer.yml?branch=main&label=build)](https://github.com/jhosepqr/Nikao-Dock/actions/workflows/fork-installer.yml)
 [![License](https://img.shields.io/github/license/jhosepqr/Nikao-Dock)](LICENSE)
 [![Windows](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D6?logo=windows&logoColor=white)](#installation)
 [![Rust / Tauri](https://img.shields.io/badge/Rust%20%2F%20Tauri-native-orange)](#build-from-source)
