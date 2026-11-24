@@ -32,7 +32,8 @@ const base = {
   showTrash: true, pinExplorer: true,
   showDownloads: true,
   showOtherWorkspaces: false,
-  menuBarIslandStyle: "notch", checkUpdates: false, appearance: "auto",
+  menuBarIslandStyle: "notch", checkUpdates: false, appearance: "glass",
+  glassTransparency: 65, glassBlur: 100,
   pinned: [], recent: [], shortcutsFolder: null,
 };
 const settle = async () => { for (let i = 0; i < 12; i++) await Promise.resolve(); };
@@ -46,7 +47,7 @@ function fixture(section = "menubar", config = {}, save = async () => {}, galler
   let stateIndex = 0, refIndex = 0, nextTimer = 0, close;
   const loaded = { ...base, ...config };
   const gallery = section === "gallery";
-  const wallpaperCalls = [], wallpaperPreviews = [];
+  const wallpaperCalls = [], wallpaperPreviews = [], transparencySettingsCalls = [];
   const browser = {
     addEventListener(event, callback) { assert.ok(!listeners.has(event)); listeners.set(event, callback); },
     removeEventListener(event) { listeners.delete(event); },
@@ -79,6 +80,13 @@ function fixture(section = "menubar", config = {}, save = async () => {}, galler
         case "get_config": return { ...loaded };
         case "get_autostart": return false;
         case "windows_preferences": return { animations: true };
+        case "glass_support": return {
+          windows11: true,
+          transparencyEffects: true,
+          energySaver: false,
+          ...galleryNative.glassSupport,
+        };
+        case "open_transparency_settings": transparencySettingsCalls.push(true); return;
         case "wallpaper_preview": return null;
         case "wallpaper_selection": return typeof galleryNative.selection === "function" ? galleryNative.selection() : galleryNative.selection ?? null;
         case "apply_wallpaper": wallpaperCalls.push({ ...args }); return galleryNative.apply?.(args.id);
@@ -112,7 +120,7 @@ function fixture(section = "menubar", config = {}, save = async () => {}, galler
   }
   function find(predicate) { const node = [...elements(render())].find(predicate); assert.ok(node); return node; }
   return {
-    calls, timers, render, themes: nativeWindow.themes, wallpaperCalls, wallpaperPreviews,
+    calls, timers, render, themes: nativeWindow.themes, wallpaperCalls, wallpaperPreviews, transparencySettingsCalls,
     external(patch) { Object.assign(loaded, patch); },
     async focus() { listeners.get("focus")?.(); await settle(); },
     async mount() { render(); const cleanup = effects.map((effect) => effect()); await settle(); return () => cleanup.forEach((fn) => fn?.()); },
@@ -402,27 +410,90 @@ test("returning to Settings reflects dock removals without overwriting local edi
 });
 
 test("the theme picker offers every theme with a preview, saves only the choice and themes Settings", async () => {
-  const themes = ["auto", "light", "dark", "frosted", "clear", "aurora"];
+  const themes = ["glass", "auto", "light", "dark", "frosted", "clear", "aurora"];
   for (const language of Object.keys(texts)) {
     const view = fixture("appearance", { language });
     const picker = [...elements(view.body())].find((node) => node.props.label === texts[language].theme);
     assert.deepEqual(picker.props.options.map((option) => option.value), themes);
     assert.ok(picker.props.options.every((option) => option.preview && option.label));
-    assert.equal(picker.props.value, "auto");
+    assert.equal(picker.props.value, "glass");
   }
   const view = fixture("appearance");
   const unmount = await view.mount();
   try {
-    assert.deepEqual(view.themes, [null], "automatic follows Windows");
-    view.change(texts.en.theme, "frosted");
+    assert.deepEqual(view.themes, ["light"], "glass uses the light window theme");
+    view.change(texts.en.theme, "auto");
     view.fire(60);
     await settle();
-    assert.deepEqual(view.calls, [{ appearance: "frosted" }]);
-    // An old file without the setting reads as automatic.
+    assert.deepEqual(view.calls, [{ appearance: "auto" }]);
+    view.change(texts.en.theme, "glass");
+    view.fire(60);
+    await settle();
+    assert.deepEqual(view.calls.at(-1), { appearance: "glass" });
+    // An old file without the setting reads as glass.
     const old = fixture("appearance", { appearance: undefined });
     const picker = [...elements(old.body())].find((node) => node.props.label === texts.en.theme);
-    assert.equal(picker.props.value, "auto");
+    assert.equal(picker.props.value, "glass");
   } finally { unmount(); }
+});
+
+test("glass sliders render only for Glass and save only the changed level", async () => {
+  for (const theme of ["auto", "light", "dark", "frosted", "clear", "aurora"]) {
+    const view = fixture("appearance", { appearance: theme });
+    const controls = [...elements(view.body())];
+    assert.ok(!controls.some((node) => node.props.label === texts.en.glassTransparency), theme);
+    assert.ok(!controls.some((node) => node.props.label === texts.en.glassBlur), theme);
+  }
+  const view = fixture("appearance", { appearance: "glass" });
+  const unmount = await view.mount();
+  try {
+    const controls = [...elements(view.body())];
+    const transparency = controls.find((node) => node.props.label === texts.en.glassTransparency && "value" in node.props);
+    const blur = controls.find((node) => node.props.label === texts.en.glassBlur && "value" in node.props);
+    assert.equal(transparency.props.value, 65);
+    assert.equal(transparency.props.unit, "%");
+    assert.equal(blur.props.value, 100);
+    assert.equal(blur.props.unit, "%");
+    view.change(texts.en.glassTransparency, 80);
+    view.fire(60);
+    await settle();
+    assert.deepEqual(view.calls, [{ glassTransparency: 80 }]);
+    view.change(texts.en.glassBlur, 40);
+    view.fire(60);
+    await settle();
+    assert.deepEqual(view.calls.at(-1), { glassBlur: 40 });
+  } finally { unmount(); }
+});
+
+test("glass capability hints explain Windows 10 and disabled transparency", async () => {
+  const win10 = fixture("appearance", { appearance: "glass" }, undefined, {
+    glassSupport: { windows11: false, transparencyEffects: true, energySaver: false },
+  });
+  const unmountWin10 = await win10.mount();
+  try {
+    const html = renderToStaticMarkup(win10.body());
+    assert.ok(html.includes(texts.en.glassBlurUnavailable));
+    assert.ok(!html.includes(texts.en.glassTransparencyOff));
+    const blur = [...elements(win10.body())].find((node) => node.props.label === texts.en.glassBlur && "value" in node.props);
+    const transparency = [...elements(win10.body())].find((node) => node.props.label === texts.en.glassTransparency && "value" in node.props);
+    assert.equal(blur.props.disabled, true);
+    assert.ok(!transparency.props.disabled);
+  } finally { unmountWin10(); }
+
+  for (const glassSupport of [
+    { windows11: true, transparencyEffects: false, energySaver: false },
+    { windows11: true, transparencyEffects: true, energySaver: true },
+  ]) {
+    const off = fixture("appearance", { appearance: "glass" }, undefined, { glassSupport });
+    const unmountOff = await off.mount();
+    try {
+      const html = renderToStaticMarkup(off.body());
+      assert.ok(html.includes(texts.en.glassTransparencyOff));
+      off.button(texts.en.genieOffAction);
+      await settle();
+      assert.equal(off.transparencySettingsCalls.length, 1);
+    } finally { unmountOff(); }
+  }
 });
 
 test("the alert bounce and the preview close button are always on, with no switch left", () => {

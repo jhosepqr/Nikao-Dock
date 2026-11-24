@@ -371,6 +371,7 @@ input:focus-visible {
 
 .row + .row,
 .visual-setting + .row,
+.card-note + .row,
 .row-sub + .row {
   border-top: 1px solid var(--line);
 }
@@ -570,6 +571,8 @@ input:focus-visible {
 .theme-dock i:nth-child(3) { background: #a488d5; }
 .theme-dock i:nth-child(4) { background: #70bfa4; }
 .theme-dock i:nth-child(5) { background: #d68093; }
+.theme-layer[data-theme="glass"] { --bar: rgba(250, 251, 255, 0.49); --dock: rgba(250, 251, 255, 0.37); --rim: rgba(255, 255, 255, 0.6); --blur: blur(8px) saturate(1.6); }
+.theme-layer[data-theme="glass"] .theme-dock { box-shadow: inset 0 0 0 0.5px var(--rim), inset 0 6px 6px -6px rgba(255, 255, 255, 0.28), 0 2px 6px rgba(0, 0, 0, 0.14); }
 .theme-layer[data-theme="dark"] { --ink: rgba(255, 255, 255, 0.85); --bar: rgba(24, 24, 26, 0.47); --dock: rgba(28, 28, 30, 0.32); --rim: rgba(255, 255, 255, 0.3); }
 .theme-layer[data-theme="frosted"] { --bar: rgba(250, 251, 253, 0.77); --dock: rgba(250, 251, 253, 0.72); --rim: rgba(255, 255, 255, 0.9); --blur: blur(10px) saturate(1.4); }
 .theme-layer[data-theme="clear"] { --ink: #fff; --bar: rgba(0, 0, 0, 0.15); --dock: rgba(255, 255, 255, 0.06); --rim: rgba(255, 255, 255, 0.9); --blur: blur(2.5px) saturate(1.5); }

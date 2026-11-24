@@ -23,6 +23,8 @@ const PATHS = {
   reset: <><path d="M3 10a9 9 0 1 1 1 8M3 4v6h6" /></>,
   star: <path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1 6.2-5.5-2.9-5.5 2.9 1-6.2L3 9.6l6.2-.9z" />,
   external: <><path d="M14 3h7v7m0-7L10 14M10 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5" /></>,
+  glass: <><rect x="3" y="5" width="18" height="14" rx="4" /><path d="m7 15 4-6M11 15l3-4.5" opacity=".7" /></>,
+  blur: <><path d="M12 3.5c3.5 4.3 6 7.3 6 10.5a6 6 0 1 1-12 0c0-3.2 2.5-6.2 6-10.5Z" /><path d="M9.5 14.5a2.5 2.5 0 0 0 2.5 2.5" opacity=".7" /></>,
 } satisfies Record<string, ReactNode>;
 
 export function SettingIcon({ name, size = 18 }: { name: keyof typeof PATHS; size?: number }) {
@@ -58,10 +60,26 @@ export function DockPreview({ position, iconSize, wallpaper, density = "normal" 
 
 type Theme = Exclude<Appearance, "auto">;
 
+function glassPreviewStyle(transparency?: number, blur?: number): CSSProperties | undefined {
+  if (transparency === undefined && blur === undefined) return undefined;
+  const t = Math.min(100, Math.max(0, transparency ?? 65));
+  const b = Math.min(100, Math.max(0, blur ?? 100));
+  const tintAlpha = 235 - 2.15 * t;
+  const dockAlpha = tintAlpha / 255;
+  const barAlpha = Math.min(235, Math.max(110, tintAlpha + 30)) / 255;
+  const blurPx = (b / 100) * 8;
+  const saturate = 1 + 0.6 * (b / 100);
+  return {
+    "--dock": `rgba(250, 251, 255, ${dockAlpha.toFixed(2)})`,
+    "--bar": `rgba(250, 251, 255, ${barAlpha.toFixed(2)})`,
+    "--blur": `blur(${blurPx.toFixed(1)}px) saturate(${saturate.toFixed(2)})`,
+  } as CSSProperties;
+}
+
 /** One theme's bar and dock over the wallpaper. Each layer carries its own
  * wallpaper: a clipped layer cannot blur what lies outside it. */
-function ThemeLayer({ theme, wallpaper, half }: { theme: Theme; wallpaper: string | null; half?: boolean }) {
-  return <span className="theme-layer" data-theme={theme} data-half={half ? "" : undefined}>
+function ThemeLayer({ theme, wallpaper, half, style }: { theme: Theme; wallpaper: string | null; half?: boolean; style?: CSSProperties }) {
+  return <span className="theme-layer" data-theme={theme} data-half={half ? "" : undefined} style={style}>
     {wallpaper ? <img className="preview-wallpaper" src={wallpaper} alt="" /> : null}
     <span className="theme-bar"><i /><i /><i /><b /></span>
     <span className="theme-dock">{MINI_ICONS}</span>
@@ -70,11 +88,25 @@ function ThemeLayer({ theme, wallpaper, half }: { theme: Theme; wallpaper: strin
 
 /** The materials in CSS, as the dock draws them: `auto` shows light and
  * dark split, as macOS shows its automatic appearance. */
-export function ThemePreview({ appearance, wallpaper }: { appearance: Appearance; wallpaper: string | null }) {
+export function ThemePreview({
+  appearance,
+  wallpaper,
+  glassTransparency,
+  glassBlur,
+}: {
+  appearance: Appearance;
+  wallpaper: string | null;
+  glassTransparency?: number;
+  glassBlur?: number;
+}) {
   return <span className="preview-screen preview-theme">
     {appearance === "auto"
       ? <><ThemeLayer theme="light" wallpaper={wallpaper} /><ThemeLayer theme="dark" wallpaper={wallpaper} half /></>
-      : <ThemeLayer theme={appearance} wallpaper={wallpaper} />}
+      : <ThemeLayer
+          theme={appearance}
+          wallpaper={wallpaper}
+          style={appearance === "glass" ? glassPreviewStyle(glassTransparency, glassBlur) : undefined}
+        />}
   </span>;
 }
 

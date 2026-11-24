@@ -8,8 +8,8 @@ export type DockDensity = "compact" | "normal" | "spacious";
 export type DockAutoHideSpeed = "smooth" | "normal" | "fast";
 /** View of the existing two settings; saved atomically as a mutually exclusive pair. */
 export type DockHidingMode = "visible" | "automatic" | "intelligent";
-/** `auto` follows Windows' light or dark mode. */
-export type Appearance = "auto" | "light" | "dark" | "frosted" | "clear" | "aurora";
+/** `glass` is the default; `auto` follows Windows' light or dark mode. */
+export type Appearance = "glass" | "auto" | "light" | "dark" | "frosted" | "clear" | "aurora";
 
 /** Mirrors `muelle_config::Config`. */
 export interface Config {
@@ -48,12 +48,19 @@ export interface Config {
   autoUpdate: boolean;
   language: Language;
   appearance: Appearance;
+  /** Glass theme transparency, 0..=100 (100 is most see-through). */
+  glassTransparency: number;
+  /** Glass theme blur intensity, 0..=100 (0 is no blur). */
+  glassBlur: number;
   /** The folder shown at the right of the dock, whose contents open as a menu. */
   shortcutsFolder: string | null;
 }
 
 export const ICON_SIZE = { min: 32, max: 96 } as const;
 export const MAX_MAGNIFIED_SIZE = 160;
+export const GLASS_LEVEL = { min: 0, max: 100 } as const;
+export const GLASS_TRANSPARENCY_DEFAULT = 65;
+export const GLASS_BLUR_DEFAULT = 100;
 
 export const loadConfig = () => invoke<Config>("get_config");
 export const defaultConfig = () => invoke<Config>("default_config");
@@ -64,11 +71,24 @@ export interface WindowsPreferences {
   animations: boolean;
 }
 
+/** Capabilities that determine whether Glass can blur or stay translucent. */
+export interface GlassSupport {
+  windows11: boolean;
+  transparencyEffects: boolean;
+  energySaver: boolean;
+}
+
 let windowsPreferencesRequest: Promise<WindowsPreferences> | undefined;
 /** Coalesce overlapping focus/StrictMode reads, but reread after returning from Windows Settings. */
 export const loadWindowsPreferences = () =>
   windowsPreferencesRequest ??= invoke<WindowsPreferences>("windows_preferences")
     .finally(() => { windowsPreferencesRequest = undefined; });
+let glassSupportRequest: Promise<GlassSupport> | undefined;
+/** Coalesce overlapping focus/StrictMode reads, but reread after returning from Windows Settings. */
+export const glassSupport = () =>
+  glassSupportRequest ??= invoke<GlassSupport>("glass_support")
+    .finally(() => { glassSupportRequest = undefined; });
+export const openTransparencySettings = () => invoke<void>("open_transparency_settings");
 export const openAnimationSettings = () => invoke<void>("open_animation_settings");
 export const setAutostart = (enabled: boolean) => invoke<void>("set_autostart", { enabled });
 /** The folder the user picks, or null if they cancel. */

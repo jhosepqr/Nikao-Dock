@@ -10,17 +10,22 @@ copia la sección de la versión que se publica a la release de GitHub.
 
 ### English
 
-- Docks saved on configuration version 1 with Appearance set to Automatic
-  switch to the Glass theme once. Choosing Automatic again after that stays
-  Automatic. Glass transparency and blur are stored with the theme; the dock
-  already applies them.
+- New Glass theme (default), with transparency and blur controls in Settings:
+  light translucent glass over the blurred wallpaper, a thin light rim, a
+  soft shadow, subtle separators and smaller running-app dots. On Windows 10
+  it renders translucent glass without blur, and falls back to solid light
+  when Windows transparency is off or energy saver is on. Existing configs on
+  Automatic migrate to Glass once; choosing Automatic again keeps it.
 
 ### Español
 
-- Los docks guardados en la versión 1 de la configuración con Apariencia
-  Automático pasan una sola vez al tema Vidrio. Si después se elige Automático
-  otra vez, se queda. La transparencia y el desenfoque del vidrio quedan
-  guardados; el dock ya los aplica.
+- Nuevo tema Vidrio (predeterminado), con controles de transparencia y
+  desenfoque en Ajustes: vidrio claro translúcido sobre el fondo desenfocado,
+  borde fino y claro, sombra suave, separadores sutiles y puntos más pequeños
+  para las apps abiertas. En Windows 10 se dibuja translúcido sin desenfoque
+  y pasa a sólido claro si la transparencia de Windows está desactivada o el
+  ahorro de energía está activo. Las configuraciones existentes en Automático
+  pasan a Vidrio una sola vez; si se vuelve a elegir Automático, se conserva.
 
 ## [0.1.22]
 

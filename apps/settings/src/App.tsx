@@ -10,16 +10,22 @@ import {
   type DockAutoHideSpeed,
   type DockHidingMode,
   type GenieSpeed,
+  type GlassSupport,
   type IslandStyle,
   type Language,
   type UpdateInfo,
   type WindowsPreferences,
+  GLASS_BLUR_DEFAULT,
+  GLASS_LEVEL,
+  GLASS_TRANSPARENCY_DEFAULT,
   ICON_SIZE,
   MAX_MAGNIFIED_SIZE,
   checkUpdate,
   defaultConfig,
   getAutostart,
+  glassSupport,
   openAnimationSettings,
+  openTransparencySettings,
   loadWindowsPreferences,
   installUpdate,
   loadConfig,
@@ -69,8 +75,13 @@ export function App() {
   const [config, setConfig] = useState<Config | null>(null);
   const [autostart, setAutostartState] = useState(false);
   const [windowsPreferences, setWindowsPreferences] = useState<WindowsPreferences | null>(null);
-  // Keep the animation notice from flashing while the initial system read is pending.
+  const [glassState, setGlassState] = useState<GlassSupport | null>(null);
+  // Keep notices from flashing while the initial system reads are pending.
   const animations = windowsPreferences?.animations ?? true;
+  const windows11 = glassState?.windows11 ?? true;
+  const transparencyAvailable = glassState
+    ? glassState.transparencyEffects && !glassState.energySaver
+    : true;
   const [section, setSection] = useState<SectionId>("dock");
   const [failed, setFailed] = useState(false);
   const [version, setVersion] = useState("");
@@ -121,9 +132,15 @@ export function App() {
         .then((values) => { if (alive) setWindowsPreferences(values); })
         .catch(() => {});
     };
+    const readGlassSupport = () => {
+      glassSupport()
+        .then((values) => { if (alive) setGlassState(values); })
+        .catch(() => {});
+    };
     const refreshOnFocus = async () => {
       const read = ++focusRead;
       readWindowsPreferences();
+      readGlassSupport();
       const queued = flushSettings();
       if (!await queued || !alive || pending.current || writes.current !== queued) return;
       const loaded = await loadConfig();
@@ -135,6 +152,7 @@ export function App() {
     };
     const onFocus = () => { void refreshOnFocus().catch(() => {}); };
     readWindowsPreferences();
+    readGlassSupport();
     window.addEventListener("focus", onFocus);
     Promise.all([loadConfig(), getAutostart()])
       .then(([loaded, starts]) => {
@@ -246,12 +264,14 @@ export function App() {
       .catch(() => setFailed(true));
   }, [confirmingReset, update]);
 
-  const appearance = config?.appearance ?? "auto";
+  const appearance = config?.appearance ?? "glass";
   useEffect(() => {
     getCurrentWindow().setTheme(windowTheme(appearance)).catch(() => {});
   }, [appearance]);
 
   if (!config) return <div className="window" />;
+  const glassTransparency = config.glassTransparency ?? GLASS_TRANSPARENCY_DEFAULT;
+  const glassBlur = config.glassBlur ?? GLASS_BLUR_DEFAULT;
   const language = resolveLanguage(config.language, config.language === "auto" ? navigator.language : "");
   const t = textsFor(language);
   const durationFormat = new Intl.NumberFormat(config.language === "auto" ? navigator.language : config.language);
@@ -361,16 +381,63 @@ export function App() {
                 <VisualChoices<Appearance>
                   label={t.theme}
                   columns={3}
-                  value={config.appearance ?? "auto"}
+                  value={appearance}
                   options={THEMES.map((theme) => ({
                     value: theme,
                     label: themeName(t, theme),
                     detail: theme === "auto" ? t.themeAutoDetail : undefined,
-                    preview: <ThemePreview appearance={theme} wallpaper={wallpaper} />,
+                    preview: (
+                      <ThemePreview
+                        appearance={theme}
+                        wallpaper={wallpaper}
+                        glassTransparency={theme === "glass" ? glassTransparency : undefined}
+                        glassBlur={theme === "glass" ? glassBlur : undefined}
+                      />
+                    ),
                   }))}
                   onChange={(appearance) => update({ appearance })}
                 />
                 <p className="card-note row-hint">{t.themeHint}</p>
+                {appearance === "glass" ? (
+                  <>
+                    <Row icon={<SettingIcon name="glass" />} label={t.glassTransparency}>
+                      <Slider
+                        label={t.glassTransparency}
+                        value={glassTransparency}
+                        min={GLASS_LEVEL.min}
+                        max={GLASS_LEVEL.max}
+                        unit="%"
+                        onChange={(glassTransparency) => update({ glassTransparency })}
+                      />
+                    </Row>
+                    <Row
+                      icon={<SettingIcon name="blur" />}
+                      label={t.glassBlur}
+                      hint={!windows11 ? t.glassBlurUnavailable : undefined}
+                    >
+                      <Slider
+                        label={t.glassBlur}
+                        value={glassBlur}
+                        min={GLASS_LEVEL.min}
+                        max={GLASS_LEVEL.max}
+                        unit="%"
+                        disabled={!windows11}
+                        onChange={(glassBlur) => update({ glassBlur })}
+                      />
+                    </Row>
+                    {!transparencyAvailable ? (
+                      <Row label={t.glassTransparencyOff}>
+                        <button
+                          type="button"
+                          className="push"
+                          onClick={() => void openTransparencySettings()}
+                        >
+                          {t.genieOffAction}
+                        </button>
+                      </Row>
+                    ) : null}
+                  </>
+                ) : null}
               </Card>
               <WallpaperGallery texts={t} onApplied={setWallpaper} />
             </>
@@ -713,10 +780,12 @@ function updateHint(t: Texts, state: UpdateState, version: string): string {
 
 const SECTIONS: readonly SectionId[] = ["appearance", "dock", "windows", "menubar", "system"];
 
-const THEMES: readonly Appearance[] = ["auto", "light", "dark", "frosted", "clear", "aurora"];
+const THEMES: readonly Appearance[] = ["glass", "auto", "light", "dark", "frosted", "clear", "aurora"];
 
 function themeName(t: Texts, theme: Appearance): string {
   switch (theme) {
+    case "glass":
+      return t.themeGlass;
     case "auto":
       return t.themeAuto;
     case "light":
@@ -734,7 +803,11 @@ function themeName(t: Texts, theme: Appearance): string {
 
 /** Settings takes the theme's light or dark too, as macOS apps take its appearance. */
 const windowTheme = (theme: Appearance) =>
-  theme === "auto" ? null : theme === "light" || theme === "frosted" ? "light" : "dark";
+  theme === "auto"
+    ? null
+    : theme === "glass" || theme === "light" || theme === "frosted"
+      ? "light"
+      : "dark";
 
 function sectionTitle(t: Texts, section: SectionId): string {
   switch (section) {
