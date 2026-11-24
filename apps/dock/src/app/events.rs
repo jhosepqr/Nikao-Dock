@@ -493,7 +493,8 @@ pub(super) unsafe extern "system" fn wndproc(
             }
         }
         // On battery or charging, or energy saver turned on or off: glass may
-        // have to become solid, or the other way round.
+        // have to become solid, or the other way round. The refresh below
+        // reads transparency and translucency again through `appearance::current`.
         WM_POWERBROADCAST if w.0 == PBT_APMPOWERSTATUSCHANGE || w.0 == PBT_POWERSETTINGCHANGE => {
             if w.0 == PBT_POWERSETTINGCHANGE {
                 // SAFETY: Windows owns the setting payload for this message.

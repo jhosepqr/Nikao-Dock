@@ -63,6 +63,19 @@ fn windows_preferences() -> WindowsPreferences {
     }
 }
 
+/// Why Glass can or cannot blur on this PC. Read-only; saving the sliders
+/// still goes through `set_config`.
+#[tauri::command]
+fn glass_support() -> muelle_shell::system::GlassSupport {
+    muelle_shell::system::glass_support()
+}
+
+/// The Colors page, which holds "Transparency effects" on Windows 10 and 11.
+#[tauri::command]
+fn open_transparency_settings() -> Result<(), String> {
+    launcher::open("ms-settings:colors").map_err(|error| error.to_string())
+}
+
 /// The page of Windows Settings with that switch: "Animation effects" on
 /// Windows 11, "Show animations in Windows" on Windows 10.
 #[tauri::command]
@@ -340,6 +353,8 @@ fn main() {
             get_autostart,
             set_autostart,
             windows_preferences,
+            glass_support,
+            open_transparency_settings,
             open_animation_settings,
             pick_folder,
             check_update,

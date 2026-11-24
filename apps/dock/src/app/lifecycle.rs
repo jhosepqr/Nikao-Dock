@@ -181,8 +181,9 @@ pub fn run() -> Result<()> {
         let input = create(WINDOW_EX_STYLE::default())?;
 
         // Without this, the system backdrop brush appears black. Windows 10
-        // does not know the attribute; the dock then draws solid glass
-        // (`system::transparency_enabled`), so the error is not fatal.
+        // does not know the attribute. There the dock draws a translucent tint
+        // without blur when transparency is allowed, and solid glass when it
+        // is not (`system::translucency_allowed`), so the error is not fatal.
         let enable = BOOL::from(true);
         let _ = DwmSetWindowAttribute(
             visual,
@@ -200,6 +201,8 @@ pub fn run() -> Result<()> {
         let config = load_config();
         strings::set_language(config.language);
         crate::appearance::set(config.appearance);
+        crate::appearance::set_glass_levels(config.glass_transparency, config.glass_blur);
+        crate::appearance::log_capabilities();
         let roster = roster_from(&config);
         let auto_hide = config.auto_hide;
         let slide_omega = config.dock_auto_hide_speed.omega();

@@ -8,6 +8,20 @@ copia la sección de la versión que se publica a la release de GitHub.
 
 ## [Unreleased]
 
+### English
+
+- Docks saved on configuration version 1 with Appearance set to Automatic
+  switch to the Glass theme once. Choosing Automatic again after that stays
+  Automatic. Glass transparency and blur are stored with the theme; the dock
+  already applies them.
+
+### Español
+
+- Los docks guardados en la versión 1 de la configuración con Apariencia
+  Automático pasan una sola vez al tema Vidrio. Si después se elige Automático
+  otra vez, se queda. La transparencia y el desenfoque del vidrio quedan
+  guardados; el dock ya los aplica.
+
 ## [0.1.22]
 
 ### English

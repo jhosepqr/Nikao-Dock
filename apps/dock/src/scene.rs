@@ -22,15 +22,21 @@ use windows::{
 use windows_numerics::{Vector2, Vector3};
 
 use crate::{
-    appearance::{Look, Material},
+    appearance::{
+        Look, Material, glass_backdrop_opacity, glass_tint_alpha, glass_unblurred_tint_alpha,
+    },
     gfx::{Gfx, LabelBrush},
 };
 
 #[derive(Clone, Copy)]
 pub struct Theme {
     pub light: bool,
-    /// Blur what is behind the dock; without it the tint is drawn opaque.
+    /// Host backdrop is available. Without it the tint is opaque, except Glass
+    /// on Windows 10, which may stay translucent.
     glass: bool,
+    /// Opacity of the host-backdrop sprite. 1.0 for every material except
+    /// Glass, whose blur slider scales it. 0 omits the sprite.
+    backdrop_opacity: f32,
     tint: Color,
     /// Aurora's colours, drawn over the tint from one corner to the other.
     glow: Option<[Color; 3]>,
@@ -53,36 +59,78 @@ const AURORA: [Color; 3] = [
     rgba(246, 96, 182, 132),
 ];
 
+/// Glass tint and backdrop strength. The rim, sheen, separator, shadow and
+/// dot stay on the Frosted/light values until the visual pass tunes them.
+fn glass_fill(transparency: u8, blur: u8, glass: bool, translucent: bool) -> (Color, f32) {
+    if glass {
+        (
+            rgba(255, 255, 255, glass_tint_alpha(transparency)),
+            glass_backdrop_opacity(blur),
+        )
+    } else if translucent {
+        (
+            rgba(255, 255, 255, glass_unblurred_tint_alpha(transparency)),
+            0.0,
+        )
+    } else {
+        (rgba(236, 238, 242, 255), 0.0)
+    }
+}
+
+/// A see-through bar tint, 60 more alpha than the dock and never above 235.
+/// A solid fallback stays opaque.
+fn denser_bar_tint(tint: Color) -> Color {
+    if tint.A == 255 {
+        tint
+    } else {
+        Color {
+            A: tint.A.saturating_add(60).min(235),
+            ..tint
+        }
+    }
+}
+
 impl Theme {
     /// Without `look.glass` (Windows transparency off, or energy saver on)
-    /// every material is solid, as macOS draws it with "Reduce transparency".
+    /// every material except a translucent Glass tint is solid, as macOS
+    /// draws it with "Reduce transparency".
     pub fn new(look: Look) -> Self {
         let Look {
             material,
             light,
             glass,
+            translucent,
+            transparency,
+            blur,
         } = look;
         let pick = |clear: Color, solid: Color| if glass { clear } else { solid };
-        let tint = match (material, light) {
-            (Material::Standard, true) => pick(rgba(255, 255, 255, 46), rgba(226, 226, 228, 255)),
-            (Material::Standard, false) => pick(rgba(28, 28, 30, 82), rgba(44, 44, 46, 255)),
-            (Material::Frosted, _) => pick(rgba(250, 251, 253, 184), rgba(236, 238, 242, 255)),
-            (Material::Clear, _) => pick(rgba(255, 255, 255, 14), rgba(38, 40, 46, 255)),
-            (Material::Aurora, _) => pick(rgba(12, 16, 42, 92), rgba(22, 22, 50, 255)),
+        let (tint, backdrop_opacity) = match material {
+            Material::Standard if light => {
+                (pick(rgba(255, 255, 255, 46), rgba(226, 226, 228, 255)), 1.0)
+            }
+            Material::Standard => (pick(rgba(28, 28, 30, 82), rgba(44, 44, 46, 255)), 1.0),
+            Material::Frosted => (
+                pick(rgba(250, 251, 253, 184), rgba(236, 238, 242, 255)),
+                1.0,
+            ),
+            Material::Clear => (pick(rgba(255, 255, 255, 14), rgba(38, 40, 46, 255)), 1.0),
+            Material::Aurora => (pick(rgba(12, 16, 42, 92), rgba(22, 22, 50, 255)), 1.0),
+            Material::Glass => glass_fill(transparency, blur, glass, translucent),
         };
         let (sheen, rim) = match material {
             Material::Standard | Material::Aurora => (38, [150, 40, 30, 105]),
-            Material::Frosted => (70, [210, 70, 55, 150]),
+            Material::Frosted | Material::Glass => (70, [210, 70, 55, 150]),
             // All the light is on the edge, like a lens.
             Material::Clear => (56, [235, 80, 60, 190]),
         };
         let panel_tint = match material {
             Material::Clear => pick(rgba(24, 24, 28, 150), tint),
-            _ => tint,
+            Material::Standard | Material::Frosted | Material::Aurora | Material::Glass => tint,
         };
         Self {
             light,
             glass,
+            backdrop_opacity,
             tint,
             glow: (material == Material::Aurora).then_some(AURORA),
             panel_tint,
@@ -109,6 +157,7 @@ impl Theme {
     /// The menu bar: the same material, a little denser so that the clock
     /// and the status items stay readable over any wallpaper.
     pub(crate) fn for_bar(look: Look) -> Self {
+        let base = Self::new(look);
         let pick = |clear: Color, solid: Color| if look.glass { clear } else { solid };
         let tint = match (look.material, look.light) {
             (Material::Standard, true) => pick(rgba(255, 255, 255, 110), rgba(236, 236, 238, 255)),
@@ -116,22 +165,23 @@ impl Theme {
             (Material::Frosted, _) => pick(rgba(250, 251, 253, 196), rgba(238, 240, 244, 255)),
             (Material::Clear, _) => pick(rgba(0, 0, 0, 38), rgba(30, 32, 38, 255)),
             (Material::Aurora, _) => pick(rgba(10, 14, 38, 120), rgba(20, 20, 46, 255)),
+            (Material::Glass, _) => denser_bar_tint(base.tint),
         };
-        Self {
-            tint,
-            ..Self::new(look)
-        }
+        Self { tint, ..base }
     }
 
     /// Brushes that fill a surface of this theme, bottom first: what is
-    /// behind it (with glass), the tint, and Aurora's lights.
-    pub(crate) fn fills(&self, gfx: &Gfx) -> Result<Vec<CompositionBrush>> {
+    /// behind it (with glass), the tint, and Aurora's lights. The opacity is
+    /// for that sprite. Blur intensity is the backdrop sprite's opacity: the
+    /// window is per-pixel transparent, so a partial backdrop cross-fades the
+    /// sharp desktop with the system blur.
+    pub(crate) fn fills(&self, gfx: &Gfx) -> Result<Vec<(CompositionBrush, f32)>> {
         let c = &gfx.compositor;
         let mut fills = Vec::with_capacity(4);
-        if self.glass {
-            fills.push(c.CreateHostBackdropBrush()?.cast()?);
+        if self.glass && self.backdrop_opacity > 0.0 {
+            fills.push((c.CreateHostBackdropBrush()?.cast()?, self.backdrop_opacity));
         }
-        fills.push(c.CreateColorBrushWithColor(self.tint)?.cast()?);
+        fills.push((c.CreateColorBrushWithColor(self.tint)?.cast()?, 1.0));
         if let Some(colors) = self.glow {
             let glow = c.CreateLinearGradientBrush()?;
             glow.SetStartPoint(v2(0.0, 0.0))?;
@@ -140,7 +190,7 @@ impl Theme {
             for (at, color) in [0.0, 0.5, 1.0].into_iter().zip(colors) {
                 stops.Append(&c.CreateColorGradientStopWithOffsetAndColor(at, color)?)?;
             }
-            fills.push(glow.cast()?);
+            fills.push((glow.cast()?, 1.0));
         }
         Ok(fills)
     }
@@ -160,11 +210,7 @@ impl Theme {
         Self {
             tint,
             panel_tint: tint,
-            ..Self::new(Look {
-                material: Material::Standard,
-                light,
-                glass,
-            })
+            ..Self::new(Look::classic(Material::Standard, light, glass))
         }
     }
 
@@ -224,11 +270,12 @@ impl GlassSurface {
             .Append(&c.CreateColorGradientStopWithOffsetAndColor(0.55, rgba(255, 255, 255, 0))?)?;
 
         let mut fills = theme.fills(gfx)?;
-        fills.push(sheen.cast()?);
-        for brush in &fills {
+        fills.push((sheen.cast()?, 1.0));
+        for (brush, opacity) in &fills {
             let fill = c.CreateSpriteVisual()?;
             fill.SetRelativeSizeAdjustment(v2(1.0, 1.0))?;
             fill.SetBrush(brush)?;
+            fill.SetOpacity(*opacity)?;
             glass.Children()?.InsertAtTop(&fill)?;
         }
 
@@ -433,11 +480,7 @@ mod attention_tests {
                     &SceneInput {
                         layout: &layout,
                         contents: &contents,
-                        theme: Theme::new(Look {
-                            material,
-                            light,
-                            glass: true,
-                        }),
+                        theme: Theme::new(Look::classic(material, light, true)),
                         scale,
                         frame: DockFrame::new(DockEdge::Bottom, (0.0, 0.0), layout.height),
                         remove_label: None,

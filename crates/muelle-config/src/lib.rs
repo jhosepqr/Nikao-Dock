@@ -12,7 +12,7 @@ use std::{
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-pub const CURRENT_VERSION: u32 = 1;
+pub const CURRENT_VERSION: u32 = 2;
 
 /// Error reading or saving the configuration.
 #[derive(Debug, Error)]
@@ -116,8 +116,14 @@ pub struct Config {
     pub auto_update: bool,
     pub language: Language,
     /// The look of the dock, the menu bar and their menus and panels.
-    /// `Auto` (the default) follows Windows' light or dark mode.
+    /// New installs and Reset use Glass. `Auto` follows Windows' light or dark mode.
     pub appearance: Appearance,
+    /// How see-through the Glass theme is, from 0 to 100. 100 is the most
+    /// transparent. Only the Glass theme uses it.
+    pub glass_transparency: u8,
+    /// How much of the system blur the Glass theme shows, from 0 to 100.
+    /// 0 leaves the wallpaper sharp. Only the Glass theme uses it.
+    pub glass_blur: u8,
     /// A folder shown at the right of the dock whose contents open as a
     /// menu, with a submenu for each folder inside, like a Windows 10 taskbar
     /// toolbar. Only one: the user arranges the folder as they like.
@@ -251,8 +257,10 @@ pub enum Language {
     Auto,
 }
 
-/// The themes Settings offers, as macOS offers its appearances. Every glass
-/// theme falls back to a solid one while Windows has transparency off.
+/// The themes Settings offers, as macOS offers its appearances. While
+/// transparency effects are off, or energy saver is on, they are drawn solid.
+/// On Windows 10, Glass can still be a translucent tint without blur when
+/// transparency is allowed.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Appearance {
@@ -264,6 +272,9 @@ pub enum Appearance {
     Clear,
     /// Glass tinted with the colours of the northern lights. Light content.
     Aurora,
+    /// Light glass with dark content. It does not follow Windows dark mode.
+    /// New installs use it. A version-1 `Auto` moves here once.
+    Glass,
     /// Follow Windows' light or dark mode. Also what a theme added by a newer
     /// version reads as (serde needs this fallback last).
     #[default]
@@ -273,6 +284,12 @@ pub enum Appearance {
 
 pub const ICON_SIZE_RANGE: (u32, u32) = (32, 96);
 pub const MAX_MAGNIFIED_SIZE: u32 = 160;
+/// Upper bound of [`Config::glass_transparency`] and [`Config::glass_blur`].
+pub const GLASS_LEVEL_MAX: u8 = 100;
+/// Default [`Config::glass_transparency`]. 100 is the most see-through.
+pub const GLASS_TRANSPARENCY_DEFAULT: u8 = 65;
+/// Default [`Config::glass_blur`]. 0 is no blur.
+pub const GLASS_BLUR_DEFAULT: u8 = 100;
 
 impl Config {
     /// Either policy needs a reveal strip and leaves maximized windows the full work area.
@@ -291,7 +308,24 @@ impl Config {
             .shortcuts_folder
             .map(|folder| folder.trim().to_owned())
             .filter(|folder| !folder.is_empty());
+        self.glass_transparency = self.glass_transparency.min(GLASS_LEVEL_MAX);
+        self.glass_blur = self.glass_blur.min(GLASS_LEVEL_MAX);
         self
+    }
+
+    /// One-time move onto the Glass default. A file already at version 2 or
+    /// newer is left alone, so choosing `Auto` again after this keeps `Auto`.
+    /// Returns whether the schema version changed.
+    fn migrated(mut self) -> (Self, bool) {
+        if self.version < 2 {
+            if self.appearance == Appearance::Auto {
+                self.appearance = Appearance::Glass;
+            }
+            self.version = 2;
+            (self, true)
+        } else {
+            (self, false)
+        }
     }
 
     /// Scale of the icon under the cursor (1.0 = no magnification).
@@ -343,7 +377,9 @@ impl Default for Config {
             check_updates: true,
             auto_update: true,
             language: Language::Auto,
-            appearance: Appearance::Auto,
+            appearance: Appearance::Glass,
+            glass_transparency: GLASS_TRANSPARENCY_DEFAULT,
+            glass_blur: GLASS_BLUR_DEFAULT,
             shortcuts_folder: None,
             notification_badges: true,
         }
@@ -367,7 +403,37 @@ pub fn default_path() -> PathBuf {
 }
 
 /// Reads the configuration. Returns `Ok(None)` if the file does not exist yet.
+///
+/// A version-1 `Auto` theme becomes `Glass` in memory. This does not write:
+/// [`update`] calls it while holding the file lock. [`load_and_persist`]
+/// saves that one-time migration.
 pub fn load(path: &Path) -> Result<Option<Config>, ConfigError> {
+    Ok(read(path)?.map(|(config, _)| config))
+}
+
+/// Reads the configuration and, when it was still on an older schema, writes
+/// the migrated value back. The write re-reads under the same lock as other
+/// saves, so a settings change made in between is not replaced by the copy
+/// this function read first.
+pub fn load_and_persist(path: &Path) -> Result<Option<Config>, ConfigError> {
+    let Some((config, migrated)) = read(path)? else {
+        return Ok(None);
+    };
+    if !migrated {
+        return Ok(Some(config));
+    }
+    // A failed write must not discard the settings we already read. The next
+    // successful save persists the migration.
+    match update(path, |saved| Ok(saved.unwrap_or_else(|| config.clone()))) {
+        Ok(saved) => Ok(Some(saved)),
+        Err(error) => {
+            eprintln!("muelle: no se pudo guardar la migración del tema: {error}");
+            Ok(Some(config))
+        }
+    }
+}
+
+fn read(path: &Path) -> Result<Option<(Config, bool)>, ConfigError> {
     let text = match fs::read_to_string(path) {
         Ok(text) => text,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
@@ -378,12 +444,11 @@ pub fn load(path: &Path) -> Result<Option<Config>, ConfigError> {
             });
         }
     };
-    serde_json::from_str(&text)
-        .map(|config: Config| Some(config.sanitized()))
-        .map_err(|source| ConfigError::Parse {
-            path: path.to_owned(),
-            source,
-        })
+    let config: Config = serde_json::from_str(&text).map_err(|source| ConfigError::Parse {
+        path: path.to_owned(),
+        source,
+    })?;
+    Ok(Some(config.sanitized().migrated()))
 }
 
 /// Replaces the configuration under the same lock used by incremental edits.
@@ -936,15 +1001,177 @@ mod tests {
     }
 
     #[test]
-    fn the_appearance_follows_windows_unless_chosen() {
-        // Files from before the setting, and themes from newer versions.
-        for json in [r#"{}"#, r#"{"appearance":"sepia"}"#] {
-            let config: Config = serde_json::from_str(json).unwrap_or_default();
-            assert_eq!(config.appearance, Appearance::Auto);
-        }
-        let frosted: Config =
-            serde_json::from_str(r#"{"appearance":"frosted"}"#).unwrap_or_default();
+    fn the_appearance_follows_windows_unless_chosen() -> Result<(), serde_json::Error> {
+        // A file with no theme uses Glass. A theme this version does not know
+        // stays `Auto`, which is what a newer build's value reads as.
+        let fresh: Config = serde_json::from_str("{}")?;
+        assert_eq!(fresh.appearance, Appearance::Glass);
+        assert_eq!(
+            (fresh.glass_transparency, fresh.glass_blur),
+            (GLASS_TRANSPARENCY_DEFAULT, GLASS_BLUR_DEFAULT)
+        );
+        let unknown: Config = serde_json::from_str(r#"{"appearance":"sepia"}"#)?;
+        assert_eq!(unknown.appearance, Appearance::Auto);
+        let frosted: Config = serde_json::from_str(r#"{"appearance":"frosted"}"#)?;
         assert_eq!(frosted.appearance, Appearance::Frosted);
+        Ok(())
+    }
+
+    #[test]
+    fn glass_appearance_round_trips() -> Result<(), serde_json::Error> {
+        let config: Config = serde_json::from_str(
+            r#"{"appearance":"glass","glassTransparency":65,"glassBlur":100}"#,
+        )?;
+        assert_eq!(config.appearance, Appearance::Glass);
+        assert_eq!(config.glass_transparency, GLASS_TRANSPARENCY_DEFAULT);
+        assert_eq!(config.glass_blur, GLASS_BLUR_DEFAULT);
+        let encoded = serde_json::to_value(&config)?;
+        assert_eq!(
+            encoded.get("appearance").and_then(|value| value.as_str()),
+            Some("glass")
+        );
+        assert_eq!(
+            encoded
+                .get("glassTransparency")
+                .and_then(|value| value.as_u64()),
+            Some(65)
+        );
+        assert_eq!(
+            encoded.get("glassBlur").and_then(|value| value.as_u64()),
+            Some(100)
+        );
+        let restored: Config = serde_json::from_value(encoded)?;
+        assert_eq!(restored.appearance, Appearance::Glass);
+        assert_eq!(restored.glass_transparency, config.glass_transparency);
+        assert_eq!(restored.glass_blur, config.glass_blur);
+        Ok(())
+    }
+
+    fn overwrite(path: &Path, json: &str) -> Result<(), ConfigError> {
+        fs::write(path, json).map_err(|source| ConfigError::Io {
+            path: path.to_owned(),
+            source,
+        })
+    }
+
+    fn required(path: &Path) -> Result<Config, ConfigError> {
+        load(path)?.ok_or_else(|| ConfigError::Io {
+            path: path.to_owned(),
+            source: io::Error::new(io::ErrorKind::NotFound, "falta la configuración"),
+        })
+    }
+
+    #[test]
+    fn version_one_auto_becomes_glass_and_an_explicit_theme_stays() -> Result<(), ConfigError> {
+        let auto_path = scratch("migrate-auto");
+        save(&auto_path, &Config::default())?;
+        overwrite(
+            &auto_path,
+            r#"{"version":1,"appearance":"auto","iconSize":56}"#,
+        )?;
+        let migrated = required(&auto_path)?;
+        assert_eq!(migrated.appearance, Appearance::Glass);
+        assert_eq!(migrated.version, 2);
+        assert_eq!(migrated.icon_size, 56);
+        assert_eq!(migrated.glass_transparency, GLASS_TRANSPARENCY_DEFAULT);
+        assert_eq!(migrated.glass_blur, GLASS_BLUR_DEFAULT);
+
+        let dark_path = scratch("migrate-dark");
+        save(&dark_path, &Config::default())?;
+        overwrite(&dark_path, r#"{"version":1,"appearance":"dark"}"#)?;
+        let dark = required(&dark_path)?;
+        assert_eq!(dark.appearance, Appearance::Dark);
+        assert_eq!(dark.version, 2);
+
+        let kept = scratch("keep-auto");
+        save(&kept, &Config::default())?;
+        overwrite(&kept, r#"{"version":2,"appearance":"auto"}"#)?;
+        let chosen = required(&kept)?;
+        assert_eq!(chosen.appearance, Appearance::Auto);
+        assert_eq!(chosen.version, 2);
+        Ok(())
+    }
+
+    #[test]
+    fn the_glass_migration_is_written_back_once() -> Result<(), ConfigError> {
+        let path = scratch("persist-glass");
+        save(&path, &Config::default())?;
+        overwrite(&path, r#"{"version":1,"appearance":"auto","iconSize":56}"#)?;
+        let config = load_and_persist(&path)?.ok_or_else(|| ConfigError::Io {
+            path: path.clone(),
+            source: io::Error::new(io::ErrorKind::NotFound, "falta la configuración"),
+        })?;
+        assert_eq!(config.appearance, Appearance::Glass);
+        assert_eq!(config.version, 2);
+        assert_eq!(config.icon_size, 56);
+        let raw = fs::read_to_string(&path).map_err(|source| ConfigError::Io {
+            path: path.clone(),
+            source,
+        })?;
+        let stored: serde_json::Value =
+            serde_json::from_str(&raw).map_err(|source| ConfigError::Parse {
+                path: path.clone(),
+                source,
+            })?;
+        assert_eq!(
+            stored.get("appearance").and_then(|value| value.as_str()),
+            Some("glass")
+        );
+        assert_eq!(
+            stored.get("version").and_then(|value| value.as_u64()),
+            Some(2)
+        );
+        assert_eq!(
+            stored.get("iconSize").and_then(|value| value.as_u64()),
+            Some(56)
+        );
+
+        // A second open sees the migrated file and does not treat Auto as pending.
+        overwrite(&path, r#"{"version":2,"appearance":"auto","iconSize":56}"#)?;
+        let again = load_and_persist(&path)?.ok_or_else(|| ConfigError::Io {
+            path: path.clone(),
+            source: io::Error::new(io::ErrorKind::NotFound, "falta la configuración"),
+        })?;
+        assert_eq!(again.appearance, Appearance::Auto);
+        let raw = fs::read_to_string(&path).map_err(|source| ConfigError::Io {
+            path: path.clone(),
+            source,
+        })?;
+        let stored: serde_json::Value =
+            serde_json::from_str(&raw).map_err(|source| ConfigError::Parse {
+                path: path.clone(),
+                source,
+            })?;
+        assert_eq!(
+            stored.get("appearance").and_then(|value| value.as_str()),
+            Some("auto")
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn glass_levels_clamp_and_a_blur_edit_changes_only_that_field() -> Result<(), ConfigError> {
+        let path = scratch("glass-levels");
+        save(&path, &Config::default())?;
+        overwrite(&path, r#"{"glassTransparency":250,"glassBlur":250}"#)?;
+        let clamped = required(&path)?;
+        assert_eq!(clamped.glass_transparency, GLASS_LEVEL_MAX);
+        assert_eq!(clamped.glass_blur, GLASS_LEVEL_MAX);
+
+        save(&path, &Config::default())?;
+        let saved = update_preferences(
+            &path,
+            serde_json::Map::from_iter([
+                ("glassBlur".into(), 40.into()),
+                ("version".into(), 1.into()),
+            ]),
+        )?;
+        assert_eq!(saved.glass_blur, 40);
+        assert_eq!(saved.glass_transparency, GLASS_TRANSPARENCY_DEFAULT);
+        assert_eq!(saved.appearance, Appearance::Glass);
+        assert_eq!(saved.version, CURRENT_VERSION);
+        assert_eq!(saved.icon_size, Config::default().icon_size);
+        Ok(())
     }
 
     #[test]

@@ -210,12 +210,19 @@ struct Look {
     language: Language,
     screen: RECT,
     scale: f32,
-    /// The theme's material; `light` and `glass` are its other two halves
-    /// (see `appearance::Look`).
+    /// The theme's material; `light` and `glass` are its other halves
+    /// (see `appearance::Look`). The Glass sliders are copied too, so moving
+    /// one rebuilds the bar.
     material: Material,
     light: bool,
     /// See `system::transparency_enabled`.
     glass: bool,
+    /// See `system::translucency_allowed`.
+    translucent: bool,
+    /// Glass theme only, 0..=100.
+    transparency: u8,
+    /// Glass theme only, 0..=100. 0 is no blur.
+    blur: u8,
     app_name: String,
     clock: String,
     /// The input language indicator, when more than one is installed.
@@ -249,6 +256,17 @@ fn accessory_readings(snapshot: &AccessorySnapshot) -> [Option<AccessoryReading>
 }
 
 impl Look {
+    fn surface(&self) -> appearance::Look {
+        appearance::Look {
+            material: self.material,
+            light: self.light,
+            glass: self.glass,
+            translucent: self.translucent,
+            transparency: self.transparency,
+            blur: self.blur,
+        }
+    }
+
     fn panel_content_height(&self) -> f32 {
         match self.panel {
             Some(Island::Music) => 180.0,
@@ -1921,6 +1939,9 @@ impl MenuBar {
             material: appearance.material,
             light: appearance.light,
             glass: appearance.glass,
+            translucent: appearance.translucent,
+            transparency: appearance.transparency,
+            blur: appearance.blur,
             app_name: self.app_name.clone(),
             clock: system::clock_text(),
             input: system::input_language(),
@@ -2044,19 +2065,15 @@ impl MenuBar {
         let layers = root.Children()?;
         // Without transparency the bar is solid, as macOS draws it with
         // "Reduce transparency".
-        let fills = Theme::for_bar(appearance::Look {
-            material: look.material,
-            light: look.light,
-            glass: look.glass,
-        })
-        .fills(gfx)?;
-        for brush in &fills {
+        let fills = Theme::for_bar(look.surface()).fills(gfx)?;
+        for (brush, opacity) in &fills {
             let fill = c.CreateSpriteVisual()?;
             fill.SetSize(Vector2 {
                 X: width,
                 Y: height,
             })?;
             fill.SetBrush(brush)?;
+            fill.SetOpacity(*opacity)?;
             layers.InsertAtTop(&fill)?;
         }
 
@@ -3496,6 +3513,42 @@ fn popup_surface(
     Ok(children)
 }
 
+/// Host-backdrop strength. Glass scales it with the blur slider; every other
+/// material keeps the full system blur. `None` when there is nothing to draw.
+fn host_backdrop_opacity(look: &Look) -> Option<f32> {
+    if !look.glass {
+        return None;
+    }
+    let opacity = if look.material == Material::Glass {
+        appearance::glass_backdrop_opacity(look.blur)
+    } else {
+        1.0
+    };
+    (opacity > 0.0).then_some(opacity)
+}
+
+fn add_backdrop(
+    compositor: &Compositor,
+    layers: &VisualCollection,
+    opacity: f32,
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+) -> Result<()> {
+    let visual = add_visual(
+        compositor,
+        layers,
+        &compositor.CreateHostBackdropBrush()?.cast()?,
+        x,
+        y,
+        width,
+        height,
+    )?;
+    visual.SetOpacity(opacity)?;
+    Ok(())
+}
+
 fn island_shadow(
     c: &Compositor,
     mask: &CompositionBrush,
@@ -3539,7 +3592,7 @@ fn island_surface(
         (true, false) => rgba(247, 249, 252, 255),
         (false, false) => rgba(10, 12, 17, 255),
     };
-    if look.glass {
+    if let Some(opacity) = host_backdrop_opacity(look) {
         // The backdrop cannot be used as a mask-brush source. Inset its
         // rounded clip so it stays entirely inside the curved silhouette.
         let inset = (12.0 * scale)
@@ -3565,10 +3618,10 @@ fn island_surface(
         outline.SetOffset(Vector2 { X: 0.0, Y: -lift })?;
         outline.SetCornerRadius(Vector2 { X: lift, Y: lift })?;
         glass.SetClip(&c.CreateGeometricClipWithGeometry(&outline)?)?;
-        add_visual(
+        add_backdrop(
             c,
             &glass.Children()?,
-            &c.CreateHostBackdropBrush()?.cast()?,
+            opacity,
             0.0,
             0.0,
             glass_width,
@@ -3616,7 +3669,7 @@ fn bubble_surface(
         (true, false) => rgba(247, 249, 252, 255),
         (false, false) => rgba(10, 12, 17, 255),
     };
-    if look.glass {
+    if let Some(opacity) = host_backdrop_opacity(look) {
         let glass = c.CreateContainerVisual()?;
         glass.SetSize(size)?;
         let outline = c.CreateRoundedRectangleGeometry()?;
@@ -3626,10 +3679,10 @@ fn bubble_surface(
             Y: radius,
         })?;
         glass.SetClip(&c.CreateGeometricClipWithGeometry(&outline)?)?;
-        add_visual(
+        add_backdrop(
             c,
             &glass.Children()?,
-            &c.CreateHostBackdropBrush()?.cast()?,
+            opacity,
             0.0,
             0.0,
             geometry.width,
@@ -4967,7 +5020,7 @@ mod island_tests {
         bar.accessories = None;
         let mut look = bar.look.clone().context("missing initial menu bar")?;
         look.track = None;
-        for (scale, material) in [1.0, 1.25, 1.5, 2.0].into_iter().zip(Material::ALL) {
+        for (scale, material) in [1.0, 1.25, 1.5, 2.0, 1.0].into_iter().zip(Material::ALL) {
             for light in [true, false] {
                 for glass in [true, false] {
                     look.scale = scale;

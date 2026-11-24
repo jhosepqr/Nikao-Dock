@@ -871,11 +871,7 @@ mod tests {
             .flat_map(|material| {
                 [(false, false), (false, true), (true, false), (true, true)].map(
                     |(light, glass)| {
-                        Theme::new(crate::appearance::Look {
-                            material,
-                            light,
-                            glass,
-                        })
+                        Theme::new(crate::appearance::Look::classic(material, light, glass))
                     },
                 )
             });

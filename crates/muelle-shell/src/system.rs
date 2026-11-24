@@ -1,5 +1,7 @@
 use std::mem::size_of;
 
+use serde::Serialize;
+
 use windows::{
     Win32::{
         Foundation::{LPARAM, POINT, RECT},
@@ -28,21 +30,50 @@ pub fn uses_light_theme() -> bool {
     personalize(w!("SystemUsesLightTheme")).is_some_and(|value| value != 0)
 }
 
-/// Returns `true` while Windows draws see-through surfaces: "Transparency
-/// effects" is on and energy saver is off (it turns them off). Otherwise the
-/// system backdrop brush stops blurring and shows up black, so glass has to
-/// be drawn solid.
+/// Returns `true` while the host backdrop brush is available: Windows 11,
+/// "Transparency effects" on, and energy saver off (it turns the effect off).
+/// Otherwise the backdrop stops blurring and shows up black, so surfaces that
+/// rely on it have to be drawn solid.
 ///
 /// On Windows 10 there is no backdrop brush for desktop windows at all
-/// (`DWMWA_USE_HOSTBACKDROPBRUSH` arrived with Windows 11), so it is always
-/// `false` there.
+/// (`DWMWA_USE_HOSTBACKDROPBRUSH` arrived with Windows 11), so this is always
+/// `false` there. A tint with no blur can still be drawn when
+/// [`translucency_allowed`] is true.
 #[must_use]
 pub fn transparency_enabled() -> bool {
-    if !is_windows_11() {
-        return false;
-    }
+    is_windows_11() && translucency_allowed()
+}
+
+/// "Transparency effects" is on and energy saver is off, on any Windows
+/// version. This allows a translucent tint without blur on Windows 10, where
+/// [`transparency_enabled`] is always false.
+#[must_use]
+pub fn translucency_allowed() -> bool {
     // Missing means never changed, and the default is on.
-    !energy_saver_on() && personalize(w!("EnableTransparency")) != Some(0)
+    !energy_saver_on() && transparency_effects_on()
+}
+
+/// What Settings shows to explain a Glass dock that cannot blur.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GlassSupport {
+    pub windows_11: bool,
+    pub transparency_effects: bool,
+    pub energy_saver: bool,
+}
+
+/// The three switches behind [`transparency_enabled`] and [`translucency_allowed`].
+#[must_use]
+pub fn glass_support() -> GlassSupport {
+    GlassSupport {
+        windows_11: is_windows_11(),
+        transparency_effects: transparency_effects_on(),
+        energy_saver: energy_saver_on(),
+    }
+}
+
+fn transparency_effects_on() -> bool {
+    personalize(w!("EnableTransparency")) != Some(0)
 }
 
 /// `true` while energy saver (battery saver on Windows 10) is on.

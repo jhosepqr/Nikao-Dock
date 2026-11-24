@@ -33,7 +33,7 @@ pub(super) fn explorer_id() -> String {
 /// the Windows taskbar.
 pub(super) fn load_config() -> Config {
     let path = muelle_config::default_path();
-    match muelle_config::load(&path) {
+    match muelle_config::load_and_persist(&path) {
         Ok(Some(config)) => config,
         Ok(None) => {
             let pins = taskbar_pins();
@@ -182,6 +182,7 @@ impl App {
         }
         // The dock and the menu bar key their looks on it: `refresh` redraws both.
         crate::appearance::set(config.appearance);
+        crate::appearance::set_glass_levels(config.glass_transparency, config.glass_blur);
         if !config.genie {
             self.restore_transitions();
             self.snapshots.clear();
