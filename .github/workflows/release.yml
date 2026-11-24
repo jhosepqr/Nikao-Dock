@@ -6,7 +6,11 @@ name: Release
 # link and the in-app updater.
 on:
   push:
-    tags: ['v*']
+    # Stable tags only (v0.1.22). A pre-release tag such as v0.1.22-glass.1
+    # is published by fork-installer.yml and must not start this signed release.
+    tags:
+      - 'v*'
+      - '!v*-*'
   # Manual runs exercise test-signing only, with no release or updater output.
   workflow_dispatch:
 

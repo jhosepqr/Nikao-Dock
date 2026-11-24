@@ -29,6 +29,12 @@ try {
         '{ "bundle": { "createUpdaterArtifacts": false } }' | Set-Content -Encoding ascii $unsigned
         $configs += @('--config', $unsigned)
     }
+    # The fork workflow sets this. The overlay drops the crafter-station
+    # updater endpoint and its public key; the Rust guard is compiled in too.
+    if ($env:MUELLE_FORK_BUILD) {
+        Write-Warning 'MUELLE_FORK_BUILD: this installer will not update from crafter-station.'
+        $configs += @('--config', 'src-tauri/tauri.fork.conf.json')
+    }
 
     Push-Location (Join-Path $root 'apps/settings')
     try {

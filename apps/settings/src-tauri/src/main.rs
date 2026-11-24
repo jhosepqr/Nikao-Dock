@@ -12,7 +12,7 @@ mod wallpapers;
 use std::{env, io, path::PathBuf, process::Command, sync::Mutex, time::Duration};
 
 use muelle_config::Config;
-use muelle_shell::{autostart, dock_link, launcher};
+use muelle_shell::{autostart, dock_link, launcher, updates};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State, WebviewWindowBuilder};
 use tauri_plugin_updater::{Update, UpdaterExt};
@@ -148,6 +148,12 @@ async fn check_update(
     app: tauri::AppHandle,
     pending: State<'_, PendingUpdate>,
 ) -> Result<Option<UpdateInfo>, String> {
+    // Fork previews compile with the updater pointed away from upstream and
+    // still refuse to call it. The saved "check for updates" switch stays
+    // as the official install left it.
+    if !updates::upstream_updates_enabled() {
+        return Ok(None);
+    }
     let update = app
         .updater()
         .map_err(|error| error.to_string())?
@@ -248,6 +254,9 @@ async fn install_update(
     app: tauri::AppHandle,
     pending: State<'_, PendingUpdate>,
 ) -> Result<(), String> {
+    if !updates::upstream_updates_enabled() {
+        return Err("esta compilación no instala actualizaciones".into());
+    }
     // Cloned, not taken: if the download fails the user can try again.
     let update = pending
         .0
@@ -276,7 +285,7 @@ const UPDATE_ARG: &str = "--update";
 /// there is nothing to do or anything fails: the next try is tomorrow.
 async fn update_in_background(app: AppHandle) {
     let config = get_config();
-    let allowed = config.check_updates && config.auto_update;
+    let allowed = updates::upstream_updates_enabled() && config.check_updates && config.auto_update;
     let found = match app.updater_builder().timeout(Duration::from_secs(60)) {
         // The installer starts the dock again; this app need not come back.
         builder if allowed => match builder.restart_after_install(false).build() {

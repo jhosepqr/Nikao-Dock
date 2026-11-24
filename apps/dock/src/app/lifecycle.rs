@@ -203,6 +203,11 @@ pub fn run() -> Result<()> {
         crate::appearance::set(config.appearance);
         crate::appearance::set_glass_levels(config.glass_transparency, config.glass_blur);
         crate::appearance::log_capabilities();
+        if !muelle_shell::updates::upstream_updates_enabled() {
+            muelle_shell::log::line(
+                "actualizaciones: desactivadas en esta compilación (no consulta crafter-station)",
+            );
+        }
         let roster = roster_from(&config);
         let auto_hide = config.auto_hide;
         let slide_omega = config.dock_auto_hide_speed.omega();
@@ -418,7 +423,13 @@ impl App {
     pub(super) fn schedule_update(&self) {
         // SAFETY: Timers on our own window; setting one again replaces it.
         unsafe {
-            if !self.config.check_updates || !self.config.auto_update {
+            // A fork build keeps the official config, which usually still
+            // has automatic updates on. Ignore that: this binary must not
+            // launch the updater.
+            let updates = muelle_shell::updates::upstream_updates_enabled()
+                && self.config.check_updates
+                && self.config.auto_update;
+            if !updates {
                 let _ = KillTimer(Some(self.input), UPDATE_TIMER);
                 return;
             }
@@ -445,7 +456,10 @@ impl App {
         unsafe {
             let _ = KillTimer(Some(self.input), UPDATE_TIMER);
         }
-        if !self.config.check_updates || !self.config.auto_update {
+        if !muelle_shell::updates::upstream_updates_enabled()
+            || !self.config.check_updates
+            || !self.config.auto_update
+        {
             return;
         }
         // Installing restarts the dock: not in the middle of a game.

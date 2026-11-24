@@ -80,3 +80,24 @@ fn now_seconds() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map_or(0, |since| since.as_secs())
 }
+
+/// Official builds ask `crafter-station/Muelle` for a newer installer.
+/// A fork preview sets `MUELLE_FORK_BUILD` while compiling (see
+/// `build.rs`) and must not replace itself with that upstream release,
+/// even when the saved config still has automatic updates on.
+#[must_use]
+pub fn upstream_updates_enabled() -> bool {
+    option_env!("MUELLE_FORK_BUILD").is_none()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn official_builds_keep_upstream_updates() {
+        // `cargo test` and CI leave the variable unset. The fork installer
+        // sets it only for the release compile, not for this test.
+        assert!(upstream_updates_enabled());
+    }
+}

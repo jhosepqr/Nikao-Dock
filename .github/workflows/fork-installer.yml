@@ -1,0 +1,142 @@
+name: Fork installer
+
+# Unsigned installer for this fork. The official Release workflow needs
+# SignPath and the minisign private key, which are not in this repository.
+# Pushing feat/glass-dock (or running this by hand) builds Muelle-Setup.exe,
+# keeps it as an artifact, and publishes it as the pre-release
+# v0.1.22-glass.1. No updater manifest is uploaded.
+on:
+  push:
+    branches: [feat/glass-dock]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fork-installer
+  cancel-in-progress: true
+
+env:
+  GLASS_TAG: v0.1.22-glass.1
+
+jobs:
+  check:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/ci.yml
+
+  installer:
+    needs: check
+    runs-on: windows-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: apps/settings/pnpm-lock.yaml
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install settings dependencies
+        working-directory: apps/settings
+        run: pnpm install --frozen-lockfile
+
+      - name: Build the unsigned installer
+        env:
+          # Read by muelle-shell at compile time. Official CI does not set it.
+          MUELLE_FORK_BUILD: "1"
+        run: ./scripts/build-installer.ps1
+
+      - name: Reject a build that can still update from upstream
+        run: |
+          $settings = 'target/release/muelle-settings.exe'
+          $bytes = [IO.File]::ReadAllBytes($settings)
+          $ascii = [Text.Encoding]::ASCII.GetString($bytes)
+          $utf16 = [Text.Encoding]::Unicode.GetString($bytes)
+          $upstream = 'crafter-station/Muelle/releases/latest/download/latest.json'
+          $fork = 'jhosepqr/macos/releases/download/v0.1.22-glass.1/latest.json'
+          if ($ascii.Contains($upstream) -or $utf16.Contains($upstream)) {
+            throw 'muelle-settings.exe still contains the upstream updater endpoint'
+          }
+          if (-not ($ascii.Contains($fork) -or $utf16.Contains($fork))) {
+            throw 'muelle-settings.exe is missing the fork updater endpoint'
+          }
+
+      - name: Collect Muelle-Setup.exe
+        run: |
+          $version = (cargo metadata --format-version 1 --no-deps | ConvertFrom-Json).packages |
+            Where-Object name -eq 'muelle' | Select-Object -ExpandProperty version
+          $setup = "target/release/bundle/nsis/Muelle_${version}_x64-setup.exe"
+          if (-not (Test-Path -LiteralPath $setup)) { throw "installer not found: $setup" }
+          New-Item -ItemType Directory -Force upload | Out-Null
+          Copy-Item -LiteralPath $setup upload/Muelle-Setup.exe
+
+      - name: Upload the installer artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: Muelle-Setup
+          path: upload/Muelle-Setup.exe
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Update Defender definitions for release analysis
+        timeout-minutes: 5
+        run: Update-MpSignature -ErrorAction Stop
+
+      - name: Analyze the final release files with Microsoft Defender
+        timeout-minutes: 10
+        run: |
+          ./scripts/Assert-ReleaseAntivirus.ps1 -ReportDirectory antivirus-report -Path `
+            target/release/muelle-settings.exe,apps/settings/src-tauri/binaries/muelle-x86_64-pc-windows-msvc.exe,upload/Muelle-Setup.exe
+
+      - name: Keep antivirus verification evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: antivirus-glass
+          path: antivirus-report/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Publish the pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $PSNativeCommandUseErrorActionPreference = $false
+          $url = "https://github.com/$env:GITHUB_REPOSITORY/releases/download/$env:GLASS_TAG/Muelle-Setup.exe"
+          @(
+            'Instalador sin firmar de feat/glass-dock, para probar el dock de vidrio.'
+            ''
+            'No se actualiza solo al Muelle oficial de crafter-station. La próxima compilación se instala a mano. No incluye latest.json.'
+            ''
+            '1. Cerrá el dock si está abierto.'
+            '2. Configuración > Aplicaciones > Aplicaciones instaladas. Buscá Muelle y desinstalalo. Si pregunta si borrar los datos, no lo marques: así se conservan pines y ajustes. Ese paso apaga el inicio con Windows.'
+            '3. Descargá Muelle-Setup.exe. Si Edge avisa que no es habitual, abrí los puntos y elegí Conservar.'
+            '4. Al abrirlo, si Windows dice que protegió tu PC: Más información > Ejecutar de todas formas.'
+            '5. La instalación no tiene asistente. Queda en %LOCALAPPDATA%\Programs\Muelle (la misma carpeta y la misma entrada Muelle que el oficial) y abre el dock. Vuelve a prender el inicio con Windows; se apaga en Ajustes.'
+            ''
+            $url
+          ) | Set-Content -Encoding utf8NoBOM notes.md
+
+          gh release view $env:GLASS_TAG --repo $env:GITHUB_REPOSITORY
+          if ($LASTEXITCODE -eq 0) {
+            gh release delete $env:GLASS_TAG --repo $env:GITHUB_REPOSITORY --yes --cleanup-tag
+            if ($LASTEXITCODE) { throw "no se pudo reemplazar $env:GLASS_TAG" }
+          }
+          gh api --method DELETE "repos/$env:GITHUB_REPOSITORY/git/refs/tags/$env:GLASS_TAG"
+          gh release create $env:GLASS_TAG upload/Muelle-Setup.exe `
+            --repo $env:GITHUB_REPOSITORY `
+            --prerelease `
+            --title "Muelle $env:GLASS_TAG" `
+            --notes-file notes.md
+          if ($LASTEXITCODE) { throw 'gh release create failed' }
+          $url >> $env:GITHUB_STEP_SUMMARY
