@@ -128,6 +128,9 @@ pub struct Config {
     /// menu, with a submenu for each folder inside, like a Windows 10 taskbar
     /// toolbar. Only one: the user arranges the folder as they like.
     pub shortcuts_folder: Option<String>,
+    /// Where the menu-bar magnifier opens. Not `menuBarSearch`: that name was
+    /// a retired boolean for showing the Windows taskbar search button.
+    pub search_mode: SearchMode,
     /// Indicator on app icons when Windows requests attention. Their icon
     /// always bounces too, and window previews always have a close button:
     /// those two switches were retired, and their saved values are ignored.
@@ -236,6 +239,18 @@ pub enum IslandStyle {
     #[default]
     #[serde(other)]
     Notch,
+}
+
+/// Where the menu-bar magnifier opens.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SearchMode {
+    /// The Windows Search flyout (Win+S), which opens at the bottom.
+    Windows,
+    /// Muelle's own panel, under the menu bar. Also what an unknown value reads as.
+    #[default]
+    #[serde(other)]
+    Spotlight,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -395,6 +410,7 @@ impl Default for Config {
             glass_transparency: GLASS_TRANSPARENCY_DEFAULT,
             glass_blur: GLASS_BLUR_DEFAULT,
             shortcuts_folder: None,
+            search_mode: SearchMode::Spotlight,
             notification_badges: true,
         }
     }
@@ -739,6 +755,21 @@ mod tests {
             );
         }
         Ok(())
+    }
+
+    #[test]
+    fn search_mode_defaults_to_spotlight_and_an_unknown_value_stays_there() {
+        assert_eq!(Config::default().search_mode, SearchMode::Spotlight);
+        let fresh: Config = serde_json::from_str("{}").unwrap_or_default();
+        assert_eq!(fresh.search_mode, SearchMode::Spotlight);
+        let windows: Config =
+            serde_json::from_str(r#"{"searchMode":"windows"}"#).unwrap_or_default();
+        assert_eq!(windows.search_mode, SearchMode::Windows);
+        let unknown: Config = serde_json::from_str(r#"{"searchMode":"bing"}"#).unwrap_or_default();
+        assert_eq!(unknown.search_mode, SearchMode::Spotlight);
+        // The retired boolean must not be read as this setting.
+        let retired: Config = serde_json::from_str(r#"{"menuBarSearch":true}"#).unwrap_or_default();
+        assert_eq!(retired.search_mode, SearchMode::Spotlight);
     }
 
     #[test]

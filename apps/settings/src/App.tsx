@@ -13,6 +13,7 @@ import {
   type GlassSupport,
   type IslandStyle,
   type Language,
+  type SearchMode,
   type UpdateInfo,
   type WindowsPreferences,
   GLASS_BLUR_DEFAULT,
@@ -639,6 +640,17 @@ export function App() {
                     onChange={(menuBar) => update({ menuBar })}
                   />
                 </Row>
+                <SubRow label={t.searchMode} hint={t.searchModeHint} open={config.menuBar}>
+                  <Select<SearchMode>
+                    label={t.searchMode}
+                    value={config.searchMode ?? "spotlight"}
+                    options={[
+                      { value: "spotlight", label: t.searchModeSpotlight },
+                      { value: "windows", label: t.searchModeWindows },
+                    ]}
+                    onChange={(searchMode) => update({ searchMode })}
+                  />
+                </SubRow>
                 <SubRow label={t.menuBarAutoHide} hint={t.menuBarAutoHideHint} open={config.menuBar}>
                   <Toggle
                     label={t.menuBarAutoHide}

@@ -57,7 +57,7 @@ dibujar su animación; las devuelve al cerrarse.
 
 ## Instalar
 
-**[Descargar Muelle-Setup.exe](https://github.com/jhosepqr/Nikao-Dock/releases/download/v0.1.22-glass.2/Muelle-Setup.exe)**
+**[Descargar Muelle-Setup.exe](https://github.com/jhosepqr/Nikao-Dock/releases/download/v0.1.22-glass.3/Muelle-Setup.exe)**
 (Windows 10 versión 1903 o posterior, o Windows 11; 64 bits) o elige una versión en
 [Releases](https://github.com/jhosepqr/Nikao-Dock/releases).
 

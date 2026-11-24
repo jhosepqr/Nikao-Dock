@@ -4,7 +4,7 @@ name: Fork installer
 # SignPath and the minisign private key, which are not in this repository.
 # Pushing feat/glass-dock (or running this by hand) builds Muelle-Setup.exe,
 # keeps it as an artifact, and publishes it as the pre-release
-# v0.1.22-glass.2. No updater manifest is uploaded.
+# v0.1.22-glass.3. No updater manifest is uploaded.
 on:
   push:
     branches: [feat/glass-dock]
@@ -18,7 +18,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  GLASS_TAG: v0.1.22-glass.2
+  GLASS_TAG: v0.1.22-glass.3
 
 jobs:
   check:
@@ -62,7 +62,7 @@ jobs:
           $ascii = [Text.Encoding]::ASCII.GetString($bytes)
           $utf16 = [Text.Encoding]::Unicode.GetString($bytes)
           $upstream = 'crafter-station/Muelle/releases/latest/download/latest.json'
-          $fork = 'jhosepqr/Nikao-Dock/releases/download/v0.1.22-glass.2/latest.json'
+          $fork = 'jhosepqr/Nikao-Dock/releases/download/v0.1.22-glass.3/latest.json'
           if ($ascii.Contains($upstream) -or $utf16.Contains($upstream)) {
             throw 'muelle-settings.exe still contains the upstream updater endpoint'
           }
@@ -114,7 +114,7 @@ jobs:
           $PSNativeCommandUseErrorActionPreference = $false
           $url = "https://github.com/$env:GITHUB_REPOSITORY/releases/download/$env:GLASS_TAG/Muelle-Setup.exe"
           @(
-            'Instalador sin firmar de feat/glass-dock. El vidrio de esta compilación es más transparente: se ve el desenfoque en vivo de lo que hay detrás, con un tinte más luminoso, un borde fino brillante y un brillo corto arriba.'
+            'Instalador sin firmar de feat/glass-dock. La lupa de la barra abre un panel tipo Spotlight arriba, sobre las aplicaciones del menú Inicio y algunas páginas de Configuración. En Ajustes se puede volver a la búsqueda de Windows. Cerrado, el panel no usa CPU. El vidrio sigue siendo el desenfoque en vivo de la compilación anterior.'
             ''
             'No se actualiza solo al Muelle oficial de crafter-station. La próxima compilación se instala a mano. No incluye latest.json.'
             ''

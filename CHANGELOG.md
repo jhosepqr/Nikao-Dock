@@ -17,6 +17,9 @@ copia la sección de la versión que se publica a la release de GitHub.
   it renders translucent glass without blur, and falls back to solid light
   when Windows transparency is off or energy saver is on. Existing configs on
   Automatic migrate to Glass once; choosing Automatic again keeps it.
+- The menu-bar search button opens a Spotlight-style panel under the bar
+  (apps and settings, arrow keys, Enter, Esc). Windows Search remains available
+  in Settings. The panel does no work while it is closed.
 
 ### Español
 
@@ -29,6 +32,9 @@ copia la sección de la versión que se publica a la release de GitHub.
   Windows está desactivada o el
   ahorro de energía está activo. Las configuraciones existentes en Automático
   pasan a Vidrio una sola vez; si se vuelve a elegir Automático, se conserva.
+- El botón de búsqueda de la barra abre un panel tipo Spotlight debajo de la
+  barra (aplicaciones y ajustes, flechas, Enter, Esc). La búsqueda de Windows
+  sigue disponible en Ajustes. Cerrado, el panel no hace nada.
 
 ## [0.1.22]
 

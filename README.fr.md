@@ -77,7 +77,7 @@ Muelle.
 
 ## Installer
 
-**[Télécharger Muelle-Setup.exe](https://github.com/jhosepqr/Nikao-Dock/releases/download/v0.1.22-glass.2/Muelle-Setup.exe)**
+**[Télécharger Muelle-Setup.exe](https://github.com/jhosepqr/Nikao-Dock/releases/download/v0.1.22-glass.3/Muelle-Setup.exe)**
 (Windows 10 version 1903 ou ultérieure, ou Windows 11 ; 64 bits) ou choisissez
 une version dans les [Releases](https://github.com/jhosepqr/Nikao-Dock/releases).
 

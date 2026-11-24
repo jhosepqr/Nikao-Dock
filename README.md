@@ -62,7 +62,7 @@ restored when Muelle exits.
 
 ## Install
 
-**[Download Muelle-Setup.exe](https://github.com/jhosepqr/Nikao-Dock/releases/download/v0.1.22-glass.2/Muelle-Setup.exe)**
+**[Download Muelle-Setup.exe](https://github.com/jhosepqr/Nikao-Dock/releases/download/v0.1.22-glass.3/Muelle-Setup.exe)**
 (Windows 10 version 1903 or later, or Windows 11; 64-bit) or pick a version from
 [Releases](https://github.com/jhosepqr/Nikao-Dock/releases).
 

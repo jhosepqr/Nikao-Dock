@@ -33,7 +33,7 @@ const base = {
   showDownloads: true,
   showOtherWorkspaces: false,
   menuBarIslandStyle: "notch", checkUpdates: false, appearance: "glass",
-  glassTransparency: 80, glassBlur: 100,
+  glassTransparency: 80, glassBlur: 100, searchMode: "spotlight",
   pinned: [], recent: [], shortcutsFolder: null,
 };
 const settle = async () => { for (let i = 0; i < 12; i++) await Promise.resolve(); };
@@ -434,6 +434,19 @@ test("the theme picker offers every theme with a preview, saves only the choice 
     const old = fixture("appearance", { appearance: undefined });
     const picker = [...elements(old.body())].find((node) => node.props.label === texts.en.theme);
     assert.equal(picker.props.value, "glass");
+  } finally { unmount(); }
+});
+
+test("search opens as Spotlight and can be switched to Windows search", async () => {
+  const view = fixture("menubar");
+  const unmount = await view.mount();
+  try {
+    const select = [...elements(view.body())].find((node) => node.props.label === texts.en.searchMode && node.props.onChange);
+    assert.equal(select.props.value, "spotlight");
+    view.change(texts.en.searchMode, "windows");
+    view.fire(60);
+    await settle();
+    assert.deepEqual(view.calls, [{ searchMode: "windows" }]);
   } finally { unmount(); }
 });
 

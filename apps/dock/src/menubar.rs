@@ -1867,7 +1867,10 @@ impl MenuBar {
             Some(Action::QuickSettings) => launcher::open_quick_settings(),
             Some(Action::Notifications) => launcher::open_notifications(),
             Some(Action::Sound) => launcher::open_sound(),
-            Some(Action::Search) => launcher::open_search(),
+            Some(Action::Search) => crate::spotlight::activate(POINT {
+                x: anchor.0,
+                y: anchor.1,
+            }),
             Some(Action::TaskView) => launcher::open_task_view(),
             Some(Action::Widgets) => launcher::open_widgets(),
             Some(Action::Bluetooth) => launcher::open_bluetooth(),

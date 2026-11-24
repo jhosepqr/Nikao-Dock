@@ -31,6 +31,7 @@ mod multi_window_view;
 mod recovery;
 mod scene;
 mod shell_work;
+mod spotlight;
 mod strings;
 mod thumbnails;
 mod usage;

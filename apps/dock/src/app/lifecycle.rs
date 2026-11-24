@@ -202,6 +202,7 @@ pub fn run() -> Result<()> {
         strings::set_language(config.language);
         crate::appearance::set(config.appearance);
         crate::appearance::set_glass_levels(config.glass_transparency, config.glass_blur);
+        crate::spotlight::set_mode(config.search_mode);
         crate::appearance::log_capabilities();
         if !muelle_shell::updates::upstream_updates_enabled() {
             muelle_shell::log::line(

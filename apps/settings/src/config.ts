@@ -10,6 +10,8 @@ export type DockAutoHideSpeed = "smooth" | "normal" | "fast";
 export type DockHidingMode = "visible" | "automatic" | "intelligent";
 /** `glass` is the default; `auto` follows Windows' light or dark mode. */
 export type Appearance = "glass" | "auto" | "light" | "dark" | "frosted" | "clear" | "aurora";
+/** `spotlight` opens under the menu bar. `windows` is the system search flyout. */
+export type SearchMode = "spotlight" | "windows";
 
 /** Mirrors `muelle_config::Config`. */
 export interface Config {
@@ -54,6 +56,8 @@ export interface Config {
   glassBlur: number;
   /** The folder shown at the right of the dock, whose contents open as a menu. */
   shortcutsFolder: string | null;
+  /** Where the menu-bar magnifier opens. */
+  searchMode: SearchMode;
 }
 
 export const ICON_SIZE = { min: 32, max: 96 } as const;
