@@ -4,7 +4,7 @@ name: Fork installer
 # SignPath and the minisign private key, which are not in this repository.
 # Pushing feat/glass-dock (or running this by hand) builds Nikao-Dock-Setup.exe,
 # keeps it as an artifact, and publishes it as the pre-release
-# v0.1.22-glass.3. No updater manifest is uploaded.
+# v0.1.22-glass.4. No updater manifest is uploaded.
 on:
   push:
     branches: [feat/glass-dock]
@@ -18,7 +18,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  GLASS_TAG: v0.1.22-glass.3
+  GLASS_TAG: v0.1.22-glass.4
 
 jobs:
   check:
@@ -62,7 +62,7 @@ jobs:
           $ascii = [Text.Encoding]::ASCII.GetString($bytes)
           $utf16 = [Text.Encoding]::Unicode.GetString($bytes)
           $upstream = 'crafter-station/Muelle/releases/latest/download/latest.json'
-          $fork = 'jhosepqr/Nikao-Dock/releases/download/v0.1.22-glass.3/latest.json'
+          $fork = 'jhosepqr/Nikao-Dock/releases/download/v0.1.22-glass.4/latest.json'
           if ($ascii.Contains($upstream) -or $utf16.Contains($upstream)) {
             throw 'muelle-settings.exe still contains the upstream updater endpoint'
           }

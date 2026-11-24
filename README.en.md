@@ -4,8 +4,6 @@
 
 <img src="assets/brand/nikao-dock-icon.png" alt="Nikao Dock" width="160" />
 
-<sub>Product icon pending — hero path <code>assets/brand/nikao-dock-icon.png</code> will point at the approved asset when it lands.</sub>
-
 # Nikao Dock
 
 **macOS-style glass dock for Windows 10 and 11**
@@ -73,9 +71,11 @@ below are placeholders until real captures are added:
 ## Installation
 
 1. Open [Releases](https://github.com/jhosepqr/Nikao-Dock/releases) and download
-   **Nikao-Dock-Setup.exe** from the newest pre-release (`v0.1.22-glass.*`).
-   GitHub does not point `/releases/latest` at pre-releases; pick the asset on
-   the release page.
+   **Nikao-Dock-Setup.exe** from pre-release
+   [`v0.1.22-glass.4`](https://github.com/jhosepqr/Nikao-Dock/releases/tag/v0.1.22-glass.4)
+   ([direct
+   link](https://github.com/jhosepqr/Nikao-Dock/releases/download/v0.1.22-glass.4/Nikao-Dock-Setup.exe)).
+   GitHub does not point `/releases/latest` at pre-releases.
 2. **SmartScreen:** if Windows protected your PC, choose **More info → Run
    anyway** (this fork installer is unsigned).
 3. If **Edge** warns about the download: **⋯ → Keep**.

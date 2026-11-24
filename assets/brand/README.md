@@ -1,7 +1,10 @@
 # Brand assets
 
-The README hero references `nikao-dock-icon.png` in this folder. Add the
-owner-approved transparent PNG here before regenerating installer/dock icons and
-bumping the glass pre-release tag.
+- **`nikao-dock-icon.png`** — source RGBA master (owner artwork).
+- **`nikao-dock.ico`** — dock executable and NSIS installer.
 
-Until then, do not commit interim dock icons to the repository.
+Regenerate derivatives:
+
+```bash
+python scripts/make_nikao_icon.py
+```

@@ -4,8 +4,6 @@
 
 <img src="assets/brand/nikao-dock-icon.png" alt="Nikao Dock" width="160" />
 
-<sub>Ícono de producto pendiente — la ruta <code>assets/brand/nikao-dock-icon.png</code> se usará cuando llegue el arte aprobado.</sub>
-
 # Nikao Dock
 
 **Dock estilo macOS con vidrio para Windows 10 y 11**
@@ -76,9 +74,11 @@ Todavía son marcadores hasta que se publiquen capturas reales:
 ## Instalación
 
 1. Andá a [Releases](https://github.com/jhosepqr/Nikao-Dock/releases) y bajá
-   **Nikao-Dock-Setup.exe** de la pre-release más nueva (hoy:
-   `v0.1.22-glass.*`). GitHub no redirige `/releases/latest` a pre-releases; el
-   instalador está en la página de la release.
+   **Nikao-Dock-Setup.exe** de la pre-release
+   [`v0.1.22-glass.4`](https://github.com/jhosepqr/Nikao-Dock/releases/tag/v0.1.22-glass.4)
+   (enlace directo al
+   [instalador](https://github.com/jhosepqr/Nikao-Dock/releases/download/v0.1.22-glass.4/Nikao-Dock-Setup.exe)).
+   GitHub no redirige `/releases/latest` a pre-releases.
 2. **SmartScreen:** si Windows dice que protegió tu PC, elegí **Más información
    → Ejecutar de todas formas** (el instalador del fork no está firmado).
 3. Si **Edge** marca el archivo como poco habitual: menú **⋯ → Conservar**.
