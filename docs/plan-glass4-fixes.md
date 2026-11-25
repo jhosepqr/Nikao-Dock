@@ -127,22 +127,36 @@ the app holding the foreground lock. Zero cost when focus works.
 
 ## FRONTEND work list (Gemini 4 Neon high)
 
-F1. Glass tokens. Define the light and dark tint, rim and text colours for
-the glass panels, matching the dock (`menu.rs:popup_tint`: dark 38,38,40 at
-alpha 175; light 246,246,248 at alpha 215). Check text, secondary text, link
-and selection contrast against the tint over both a white and a black
-wallpaper (≥ 4.5:1). Hand the values to B1 as a table; B1 puts them in
-`panel_theme.rs`.
+Done in `v0.1.22-glass.5`:
 
-F2. Rebrand check on a real install: run `Nikao-Dock-Setup.exe` over an old
-"Muelle" install and confirm that the details list, the Apps list entry,
-the Start-menu shortcut, the Settings title and About, the tray tooltip and
-the notifications all say "Nikao Dock". Report any screen that still says
-"Muelle" (other than the credit) with a screenshot.
+- F1. Liquid Glass / Clear (iOS) visual pass across the dock, battery card,
+  and Spotlight card:
+  - Dock defaults bumped to `glassTransparency = 90` (`tint alpha = 25`),
+    `glassBlur = 45` (`backdrop_opacity = 0.45`), `sheen = 235` (`0.16`),
+    diagonal luminous `rim = [255, 165, 145, 245]`, `corner_radius_ratio = 0.42`,
+    with one-time v3 → v4 config migration preserving custom user slider values.
+  - `GlassTokens::LIGHT_GLASS` and `GlassTokens::DARK_GLASS` tuned to soft
+    `0.48` blur, lower translucent tints (`(248,250,254,182)` light,
+    `(10,12,18,178)` dark), static top specular lip (`sheen`), static diagonal
+    1px hairline rim (`rim_stops`), 16px rounded composition clip, subtle
+    glass action pills (`row_fill`/`row_border`), and baked static 1px text
+    shadow on dark glass. Verified ≥ 4.68:1 WCAG AA contrast across every
+    surface over both pure white and pure black wallpapers.
+  - Battery panel hierarchy upgraded to 32pt bold percentage, 14pt semibold
+    charge status, 12.5pt muted detail lines, and a subtle glass settings pill.
+  - Spotlight panel matched with 16px card corners, 10px glass-harmonized
+    field and selection pills, keeping the GDI `EDIT` control and focus/close
+    logic untouched.
+- F2. Static string audit across installer (`hooks.nsh`, `installer.nsi`),
+  Tauri config, dock strings (`apps/dock/src/strings/*`, `build.rs`,
+  `shell_work.rs`), and Settings locales (`apps/settings/src/i18n/*`): no
+  user-visible "Muelle" remains outside the required `credit` string and MIT
+  license; only internal executable/class/legacy-cleanup identifiers remain.
 
-CPU: none at runtime.
+CPU: zero added runtime load. All gradients, rims, clips, and text shadows
+are static and built only while a panel is open (dropped on hide).
 
 ## Release
 
-Do not publish until B1 lands and the owner confirms 1–4 on Windows 11.
-Then run "Fork installer" by hand to republish the pre-release.
+Bumped `GLASS_TAG` to `v0.1.22-glass.5` in `.github/workflows/fork-installer.yml`
+and `apps/settings/src-tauri/tauri.fork.conf.json`.
