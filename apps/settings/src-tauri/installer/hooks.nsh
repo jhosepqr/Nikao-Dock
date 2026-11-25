@@ -72,7 +72,12 @@
   Delete "$DESKTOP\Muelle.lnk"
 !macroend
 
+; The details list would otherwise show the internal file names (muelle.exe,
+; the old Programs\Muelle folder) to the user. Hidden from the first hook to
+; the last, so it also covers the file copy in between.
 !macro NSIS_HOOK_PREINSTALL
+  DetailPrint "${PRODUCTNAME}"
+  SetDetailsPrint none
   !insertmacro MUELLE_STOP_DOCK
   !insertmacro NIKAO_RETIRE_MUELLE
 !macroend
@@ -84,9 +89,12 @@
   ${EndIf}
   ; Unelevated, even if the installer was run as administrator.
   nsis_tauri_utils::RunAsUser "$INSTDIR\muelle.exe" ""
+  SetDetailsPrint both
 !macroend
 
 !macro NSIS_HOOK_PREUNINSTALL
+  DetailPrint "${PRODUCTNAME}"
+  SetDetailsPrint none
   !insertmacro MUELLE_STOP_DOCK
   ; Removes the logon task (and an older Run entry), which would otherwise
   ; keep pointing at the deleted muelle.exe. Updates keep it.
@@ -97,6 +105,7 @@
 !macroend
 
 !macro NSIS_HOOK_POSTUNINSTALL
+  SetDetailsPrint both
   ${If} $UpdateMode <> 1
     SetShellVarContext current
     ; The icon cache is always disposable.
