@@ -131,9 +131,9 @@ impl Theme {
             Material::Frosted => (70, 0.55, false, [210, 70, 55, 150]),
             // All the light is on the edge, like a lens.
             Material::Clear => (56, 0.55, false, [235, 80, 60, 190]),
-            // A bright hairline and a short lip. The mid stops used to fall
-            // to 70 and disappear into the frost.
-            Material::Glass => (220, 0.12, true, [255, 230, 210, 250]),
+            // Clear Liquid Glass: bright top specular lip and corner-weighted
+            // luminous hairline rim, matching the glass pill reference.
+            Material::Glass => (235, 0.16, true, [255, 165, 145, 245]),
         };
         let panel_tint = match material {
             Material::Clear => pick(rgba(24, 24, 28, 150), tint),
@@ -181,7 +181,7 @@ impl Theme {
             ),
         };
         let corner_radius_ratio = match material {
-            Material::Glass => 0.32,
+            Material::Glass => 0.42,
             Material::Standard | Material::Frosted | Material::Clear | Material::Aurora => 0.36,
         };
         Self {
@@ -1083,19 +1083,19 @@ mod theme_tests {
 
     #[test]
     fn glass_theme_uses_tuned_light_glass_visuals_and_panel_floor() {
-        let default = Theme::new(glass_look(true, true, 80, 100));
-        assert_eq!(default.tint, rgba(255, 255, 255, 35));
-        assert_eq!(default.backdrop_opacity, 1.0);
-        assert_eq!(default.sheen, 220);
-        assert_eq!(default.sheen_end, 0.12);
+        let default = Theme::new(glass_look(true, true, 90, 45));
+        assert_eq!(default.tint, rgba(255, 255, 255, 25));
+        assert_eq!(default.backdrop_opacity, 0.45);
+        assert_eq!(default.sheen, 235);
+        assert_eq!(default.sheen_end, 0.16);
         assert!(default.specular);
-        assert_eq!(default.rim, [255, 230, 210, 250]);
+        assert_eq!(default.rim, [255, 165, 145, 245]);
         assert_eq!(default.shadow, rgba(0, 0, 0, 40));
         assert_eq!(default.shadow_blur, 30.0);
         assert_eq!(default.shadow_offset, 6.0);
         assert_eq!(default.indicator, rgba(0, 0, 0, 140));
         assert_eq!(default.indicator_size, 3.5);
-        assert_eq!(default.corner_radius_ratio, 0.32);
+        assert_eq!(default.corner_radius_ratio, 0.42);
         assert_eq!(default.separator, rgba(255, 255, 255, 140));
         assert_eq!(default.panel_tint, rgba(255, 255, 255, 150));
 
@@ -1117,7 +1117,7 @@ mod theme_tests {
 
     #[test]
     fn glass_bar_keeps_readable_alpha_floor_and_solid_fallback() {
-        let default_bar = Theme::for_bar(glass_look(true, true, 80, 100));
+        let default_bar = Theme::for_bar(glass_look(true, true, 90, 45));
         assert_eq!(default_bar.tint, rgba(255, 255, 255, 64));
 
         let clear_bar = Theme::for_bar(glass_look(true, true, 100, 100));

@@ -151,10 +151,10 @@ pub fn current() -> Look {
 
 /// Tint alpha for Glass when the host backdrop is available.
 ///
-/// 235 at 0 (almost solid), 50 at the first shipped default of 65, 35 at 80
-/// and 15 at 100. The straight line that put 65 at alpha 95 laid a white
-/// wash over the live blur, which reads as a flat gray pill on a dark
-/// wallpaper. This curve drops quickly through that range and then eases,
+/// 235 at 0 (almost solid), 50 at 65, 35 at 80, 25 at the Clear Liquid Glass
+/// default of 90, and 15 at 100. The straight line that put 65 at alpha 95
+/// laid a white wash over the live blur, which reads as a flat gray pill on a
+/// dark wallpaper. This curve drops quickly through that range and then eases,
 /// and every step still lowers the alpha.
 #[must_use]
 pub fn glass_tint_alpha(transparency: u8) -> u8 {
@@ -263,8 +263,10 @@ mod tests {
         assert_eq!(glass_tint_alpha(60), 55);
         assert_eq!(glass_tint_alpha(65), 50);
         assert_eq!(glass_tint_alpha(80), 35);
+        assert_eq!(glass_tint_alpha(90), 25);
         assert_eq!(glass_tint_alpha(100), 15);
         assert_eq!(glass_backdrop_opacity(0), 0.0);
+        assert_eq!(glass_backdrop_opacity(45), 0.45);
         assert_eq!(glass_backdrop_opacity(100), 1.0);
         let mut previous_alpha = glass_tint_alpha(0);
         let mut previous_blur = glass_backdrop_opacity(0);

@@ -63,8 +63,8 @@ export interface Config {
 export const ICON_SIZE = { min: 32, max: 96 } as const;
 export const MAX_MAGNIFIED_SIZE = 160;
 export const GLASS_LEVEL = { min: 0, max: 100 } as const;
-export const GLASS_TRANSPARENCY_DEFAULT = 80;
-export const GLASS_BLUR_DEFAULT = 100;
+export const GLASS_TRANSPARENCY_DEFAULT = 90;
+export const GLASS_BLUR_DEFAULT = 45;
 
 export const loadConfig = () => invoke<Config>("get_config");
 export const defaultConfig = () => invoke<Config>("default_config");

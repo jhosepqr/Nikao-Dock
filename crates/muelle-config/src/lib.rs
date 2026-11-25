@@ -12,7 +12,7 @@ use std::{
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-pub const CURRENT_VERSION: u32 = 3;
+pub const CURRENT_VERSION: u32 = 4;
 
 /// Folder under `%APPDATA%` and `%LOCALAPPDATA%`.
 /// The previous folder was `Muelle`; [`migrate_legacy_folder`] copies it once.
@@ -308,11 +308,13 @@ pub const MAX_MAGNIFIED_SIZE: u32 = 160;
 /// Upper bound of [`Config::glass_transparency`] and [`Config::glass_blur`].
 pub const GLASS_LEVEL_MAX: u8 = 100;
 /// Default [`Config::glass_transparency`]. 100 is the most see-through.
-/// 80 is a light frost over the live blur. The first Glass build shipped 65,
-/// which read as a gray wash; a stored 65 moves here once (version 3).
-pub const GLASS_TRANSPARENCY_DEFAULT: u8 = 80;
-/// Default [`Config::glass_blur`]. 0 is no blur.
-pub const GLASS_BLUR_DEFAULT: u8 = 100;
+/// 90 is clear Liquid Glass (low tint, ~10% white) over soft blur. Earlier
+/// Glass builds shipped 65 (version 2) and 80 (version 3); those exact stored
+/// defaults move here once on load.
+pub const GLASS_TRANSPARENCY_DEFAULT: u8 = 90;
+/// Default [`Config::glass_blur`]. 0 is no blur. 45 keeps a Clear-iOS soft
+/// blur instead of heavy frosting; a stored 100 from version 3 moves here once.
+pub const GLASS_BLUR_DEFAULT: u8 = 45;
 
 impl Config {
     /// Either policy needs a reveal strip and leaves maximized windows the full work area.
@@ -340,10 +342,10 @@ impl Config {
     ///
     /// Version 1 `Auto` becomes Glass. A file already at version 2 or newer
     /// keeps whatever theme it has, so choosing `Auto` again stays `Auto`.
-    /// Version 2 stored the first Glass transparency (65), which painted a
-    /// gray wash; only that exact value moves to the clearer default. Any
-    /// other transparency is a choice and stays. Returns whether the file
-    /// should be written back.
+    /// Version 2 stored transparency 65; version 3 stored transparency 80 and
+    /// blur 100. Only those exact shipped defaults move onto the current Clear
+    /// Liquid Glass defaults; any other value is a user choice and stays.
+    /// Returns whether the file should be written back.
     fn migrated(mut self) -> (Self, bool) {
         let mut changed = false;
         if self.version < 2 {
@@ -358,6 +360,16 @@ impl Config {
                 self.glass_transparency = GLASS_TRANSPARENCY_DEFAULT;
             }
             self.version = 3;
+            changed = true;
+        }
+        if self.version < 4 {
+            if self.glass_transparency == 80 {
+                self.glass_transparency = GLASS_TRANSPARENCY_DEFAULT;
+            }
+            if self.glass_blur == 100 {
+                self.glass_blur = GLASS_BLUR_DEFAULT;
+            }
+            self.version = 4;
             changed = true;
         }
         (self, changed)
@@ -1185,7 +1197,7 @@ mod tests {
     #[test]
     fn glass_appearance_round_trips() -> Result<(), serde_json::Error> {
         let config: Config = serde_json::from_str(
-            r#"{"appearance":"glass","glassTransparency":80,"glassBlur":100}"#,
+            r#"{"appearance":"glass","glassTransparency":90,"glassBlur":45}"#,
         )?;
         assert_eq!(config.appearance, Appearance::Glass);
         assert_eq!(config.glass_transparency, GLASS_TRANSPARENCY_DEFAULT);
@@ -1203,7 +1215,7 @@ mod tests {
         );
         assert_eq!(
             encoded.get("glassBlur").and_then(|value| value.as_u64()),
-            Some(100)
+            Some(u64::from(GLASS_BLUR_DEFAULT))
         );
         let restored: Config = serde_json::from_value(encoded)?;
         assert_eq!(restored.appearance, Appearance::Glass);
@@ -1343,6 +1355,30 @@ mod tests {
         assert_eq!(kept.glass_transparency, 40);
         assert_eq!(kept.glass_blur, 40);
         assert_eq!(kept.version, CURRENT_VERSION);
+
+        overwrite(
+            &path,
+            r#"{"version":3,"appearance":"glass","glassTransparency":80,"glassBlur":100}"#,
+        )?;
+        let liquid = load_and_persist(&path)?.ok_or_else(|| ConfigError::Io {
+            path: path.clone(),
+            source: io::Error::new(io::ErrorKind::NotFound, "falta la configuración"),
+        })?;
+        assert_eq!(liquid.glass_transparency, GLASS_TRANSPARENCY_DEFAULT);
+        assert_eq!(liquid.glass_blur, GLASS_BLUR_DEFAULT);
+        assert_eq!(liquid.version, CURRENT_VERSION);
+
+        overwrite(
+            &path,
+            r#"{"version":3,"appearance":"glass","glassTransparency":75,"glassBlur":70}"#,
+        )?;
+        let custom = load_and_persist(&path)?.ok_or_else(|| ConfigError::Io {
+            path: path.clone(),
+            source: io::Error::new(io::ErrorKind::NotFound, "falta la configuración"),
+        })?;
+        assert_eq!(custom.glass_transparency, 75);
+        assert_eq!(custom.glass_blur, 70);
+        assert_eq!(custom.version, CURRENT_VERSION);
         Ok(())
     }
 
