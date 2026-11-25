@@ -228,6 +228,7 @@ pub fn run() -> Result<()> {
             taskbar_attempts: 0,
             fullscreen: false,
             smart_hidden: false,
+            maximized_front: false,
             roster,
             tracker: WindowTracker::default(),
             windows: Vec::new(),

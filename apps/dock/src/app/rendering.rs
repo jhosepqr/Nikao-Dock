@@ -224,12 +224,7 @@ impl App {
             DockEdge::Right => (screen.right as f32 - margin - dock.height, centred),
         };
         let frame = DockFrame::new(edge, (dock_x, dock_y), dock.height);
-        // A hidden dock leaves the whole screen to maximized windows.
-        let strip = if self.config.hides_automatically() {
-            0
-        } else {
-            (dock.height + 2.0 * margin) as i32
-        };
+        let reserve = (dock.height + 2.0 * margin) as i32;
         // The resting dock's box on screen: across the edge it is as deep as
         // the layout is tall.
         let (box_width, box_height) = if edge.is_vertical() {
@@ -419,6 +414,7 @@ impl App {
                 },
             },
             slide_distance: dock.height + px(FLOAT_MARGIN) + room,
+            reserve,
             layout: dock,
         };
         self.stage = Some(stage);
@@ -429,23 +425,39 @@ impl App {
         self.render()?;
         // Last: reserving space is a synchronous call to Explorer (40-60 ms
         // measured), and the dock is already on screen meanwhile.
-        let automatic = self.config.hides_automatically();
+        self.reserve_space();
+        Ok(())
+    }
+
+    /// Keeps windows one margin clear of the resting dock, as on macOS.
+    /// Auto-hide reserves nothing, and neither does a maximized window in
+    /// front: Windows then grows maximized windows over the hidden dock's
+    /// strip. `AppBar::reserve` calls Explorer only when the strip changes.
+    pub(super) fn reserve_space(&mut self) {
+        let Some(stage) = &self.stage else {
+            return;
+        };
+        let screen = stage.key.screen;
+        let (reservation, strip) = if self.config.auto_hide {
+            // Moving an auto-hidden dock must never change the destination
+            // monitor's work area.
+            (
+                primary_monitor().map_or(screen, |primary| primary.screen),
+                0,
+            )
+        } else if self.maximized_front {
+            (screen, 0)
+        } else {
+            (screen, stage.reserve)
+        };
+        let side = match stage.key.edge {
+            DockEdge::Bottom => Edge::Bottom,
+            DockEdge::Left => Edge::Left,
+            DockEdge::Right => Edge::Right,
+        };
         if let Some(appbar) = &mut self.appbar {
-            // Auto-hide reserves zero height. Moving the dock must never
-            // change the destination monitor's work area.
-            let reservation = if automatic {
-                primary_monitor().map_or(screen, |primary| primary.screen)
-            } else {
-                screen
-            };
-            let side = match edge {
-                DockEdge::Bottom => Edge::Bottom,
-                DockEdge::Left => Edge::Left,
-                DockEdge::Right => Edge::Right,
-            };
             appbar.reserve(side, reservation, strip);
         }
-        Ok(())
     }
 
     pub(super) fn place_windows(&self) -> Result<()> {
@@ -458,7 +470,7 @@ impl App {
         // dock (for example, after launching an app with a dock click).
         let input_zone = if self.hovering || self.drag.is_some() {
             &stage.hover_zone
-        } else if self.config.hides_automatically() && self.slide.target == 1.0 {
+        } else if self.hides() && self.slide.target == 1.0 {
             &stage.edge_zone
         } else {
             &stage.rest_zone

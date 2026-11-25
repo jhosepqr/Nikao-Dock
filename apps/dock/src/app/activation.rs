@@ -294,7 +294,7 @@ impl App {
             SetTimer(Some(self.input), SWITCHER_TIMER, SWITCHER_POLL_MS, None);
             let _ = KillTimer(Some(self.input), HIDE_TIMER);
         }
-        if self.config.hides_automatically() && !self.fullscreen {
+        if self.hides() && !self.fullscreen {
             self.slide.target = 0.0;
             self.last_frame = Instant::now();
             self.place_windows()?;

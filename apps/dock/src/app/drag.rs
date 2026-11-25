@@ -525,7 +525,7 @@ impl App {
             let _ = KillTimer(Some(self.input), DRAG_TIMER);
             // The hide delay may have expired while a press held the dock
             // open. Resume it once capture/polling ends, including cancellation.
-            if self.config.hides_automatically() && !self.hovering {
+            if self.hides() && !self.hovering {
                 SetTimer(Some(self.input), HIDE_TIMER, HIDE_DELAY_MS, None);
             }
             if GetCapture() == self.input {
@@ -575,7 +575,7 @@ impl App {
         if !drag.from_group || self.hovering {
             return Ok(());
         }
-        if self.config.hides_automatically() {
+        if self.hides() {
             // SAFETY: Timer on our own window.
             unsafe { SetTimer(Some(self.input), HIDE_TIMER, HIDE_DELAY_MS, None) };
         }

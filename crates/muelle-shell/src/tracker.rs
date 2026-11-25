@@ -14,7 +14,10 @@ use windows::{
                 DWM_CLOAKED_SHELL, DWMWA_CLOAKED, DWMWA_EXTENDED_FRAME_BOUNDS,
                 DwmGetWindowAttribute,
             },
-            Gdi::ClientToScreen,
+            Gdi::{
+                ClientToScreen, GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO,
+                MonitorFromWindow,
+            },
         },
         Storage::{
             EnhancedStorage::PKEY_AppUserModel_ID, Packaging::Appx::GetApplicationUserModelId,
@@ -197,6 +200,34 @@ pub fn visible_rect(hwnd: isize) -> Option<RECT> {
     Some(if framed.is_ok() { rect } else { whole })
 }
 
+/// `true` while `hwnd` is shown maximized on the monitor whose bounds are
+/// `screen`.
+#[must_use]
+pub fn is_maximized_on(hwnd: isize, screen: RECT) -> bool {
+    let window = HWND(hwnd as *mut _);
+    // SAFETY: Read-only queries on a window handle; `info` is a valid output
+    // with its size initialized.
+    unsafe {
+        if !IsZoomed(window).as_bool()
+            || IsIconic(window).as_bool()
+            || !IsWindowVisible(window).as_bool()
+            || is_cloaked(window)
+        {
+            return false;
+        }
+        let mut info = MONITORINFO {
+            cbSize: size_of::<MONITORINFO>() as u32,
+            ..Default::default()
+        };
+        GetMonitorInfoW(
+            MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST),
+            &mut info,
+        )
+        .as_bool()
+            && info.rcMonitor == screen
+    }
+}
+
 /// Where a window that has just started minimizing was on screen, which by
 /// then it no longer says itself: it is already at -32000.
 ///
@@ -210,12 +241,7 @@ pub fn visible_rect(hwnd: isize) -> Option<RECT> {
 /// and flying from it made the genie jump first.
 #[must_use]
 pub fn rect_before_minimize(hwnd: isize, last_seen: Option<RECT>) -> Option<(RECT, RECT)> {
-    use windows::Win32::{
-        Graphics::Gdi::{
-            GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromWindow,
-        },
-        UI::HiDpi::{GetDpiForWindow, GetSystemMetricsForDpi},
-    };
+    use windows::Win32::UI::HiDpi::{GetDpiForWindow, GetSystemMetricsForDpi};
     let window = HWND(hwnd as *mut _);
     let mut placement = WINDOWPLACEMENT {
         length: size_of::<WINDOWPLACEMENT>() as u32,

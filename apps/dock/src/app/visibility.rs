@@ -11,7 +11,7 @@ use muelle_shell::{
     taskbar, tracker,
 };
 use windows::Win32::{
-    Foundation::{POINT, RECT},
+    Foundation::{HWND, POINT, RECT},
     UI::{
         Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON, VK_MBUTTON, VK_RBUTTON},
         WindowsAndMessaging::{GetCursorPos, KillTimer, SetTimer},
@@ -43,7 +43,9 @@ impl App {
     pub(super) fn hide_if_unused(&mut self) -> Result<()> {
         // One decision for timer, settings and overlap changes. Automatic
         // hiding wins; intelligent hiding matters only in its absence.
-        let hidden = self.config.auto_hide || (self.config.smart_hide && self.smart_hidden);
+        let hidden = self.config.auto_hide
+            || (self.config.smart_hide && self.smart_hidden)
+            || self.maximized_front;
         if hidden
             && (self.mascot.is_some()
                 || self.menu_open
@@ -71,6 +73,12 @@ impl App {
         self.slide.target = target;
         self.last_frame = Instant::now();
         self.place_windows()
+    }
+
+    /// The dock hides now and comes back from its screen edge: because of the
+    /// setting, or because a maximized window is in front.
+    pub(super) fn hides(&self) -> bool {
+        self.config.hides_automatically() || self.maximized_front
     }
 
     /// The screen edge chosen in Settings.
@@ -150,11 +158,7 @@ impl App {
         let on_dock_edge = matches!(target, Some(EdgeTarget::Dock(screen))
             if self.stage.as_ref().is_some_and(|stage| stage.key.screen == screen));
         self.arm_edge_timer(wait);
-        if !on_dock_edge
-            && self.config.hides_automatically()
-            && !self.hovering
-            && self.slide.target == 0.0
-        {
+        if !on_dock_edge && self.hides() && !self.hovering && self.slide.target == 0.0 {
             // SAFETY: Existing hide timer on the dock input window.
             unsafe {
                 SetTimer(Some(self.input), HIDE_TIMER, HIDE_DELAY_MS, None);
@@ -199,7 +203,7 @@ impl App {
         let mouse_down = [VK_LBUTTON, VK_RBUTTON, VK_MBUTTON]
             .into_iter()
             .any(|key| unsafe { GetAsyncKeyState(i32::from(key.0)) < 0 });
-        if !self.config.hides_automatically()
+        if !self.hides()
             || self.hovering
             || self.menu_open
             || self.press.is_some()
@@ -346,6 +350,7 @@ impl App {
                 let _ = KillTimer(Some(self.input), FULLSCREEN_TIMER);
             }
         }
+        self.update_maximized(front)?;
         self.update_smart_hiding()?;
         // Updating an app name can fail transiently; it must never prevent
         // the dock or bar from returning after full-screen mode.
@@ -353,6 +358,40 @@ impl App {
             eprintln!("muelle: nombre de la barra superior: {error:#}");
         }
         Ok(())
+    }
+
+    /// Hides the dock while an app window maximized on its monitor is in
+    /// front, and releases the reserved strip so that window fills the screen.
+    /// Our own panels, Start and other shell surfaces taking the foreground
+    /// keep the current state: flipping it would resize every maximized
+    /// window behind them.
+    fn update_maximized(&mut self, front: isize) -> Result<()> {
+        let on_dock_screen = self
+            .stage
+            .as_ref()
+            .is_some_and(|stage| tracker::is_maximized_on(front, stage.key.screen));
+        let maximized = if on_dock_screen {
+            true
+        } else if front == 0
+            || tracker::is_desktop(HWND(front as *mut _))
+            || self.windows.iter().any(|window| window.hwnd == front)
+        {
+            false
+        } else {
+            self.maximized_front
+        };
+        if maximized == self.maximized_front {
+            return Ok(());
+        }
+        self.maximized_front = maximized;
+        if maximized {
+            self.reserve_space();
+            self.hide_if_unused()?;
+        } else {
+            self.hide_if_unused()?;
+            self.reserve_space();
+        }
+        self.render()
     }
 
     pub(super) fn on_appbar_notice(&mut self, notice: usize) -> Result<()> {

@@ -565,6 +565,9 @@ struct Stage {
     edge_zone: RECT,
     /// How far the dock slides toward its screen edge to hide completely.
     slide_distance: f32,
+    /// Depth of the strip the resting dock reserves: itself plus its margin
+    /// on both sides, so windows end one margin short of it.
+    reserve: i32,
 }
 
 impl Stage {
@@ -656,6 +659,9 @@ pub(crate) struct App {
     taskbar_attempts: u8,
     fullscreen: bool,
     smart_hidden: bool,
+    /// An app window maximized on the dock's monitor is in front: the dock
+    /// hides as if auto-hide were on and gives that window the whole screen.
+    maximized_front: bool,
     roster: Roster,
     tracker: WindowTracker,
     windows: Vec<TrackedWindow>,

@@ -72,7 +72,7 @@ impl App {
         unsafe {
             let _ = KillTimer(Some(self.input), PREVIEW_TIMER);
         }
-        if self.preview.take().is_some() && self.config.hides_automatically() && !self.hovering {
+        if self.preview.take().is_some() && self.hides() && !self.hovering {
             unsafe { SetTimer(Some(self.input), HIDE_TIMER, HIDE_DELAY_MS, None) };
         }
     }

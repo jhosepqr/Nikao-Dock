@@ -73,6 +73,7 @@ impl Fixture {
             taskbar_attempts: 0,
             fullscreen: false,
             smart_hidden: false,
+            maximized_front: false,
             roster: Roster::default(),
             tracker: WindowTracker::default(),
             windows: Vec::new(),

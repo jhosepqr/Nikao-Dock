@@ -145,7 +145,7 @@ impl App {
                 return;
             }
         }
-        if matches!(place, mascot::Place::Along { .. }) && self.config.hides_automatically() {
+        if matches!(place, mascot::Place::Along { .. }) && self.hides() {
             // Reveal only after the mascot and its cleanup timer exist.
             unsafe {
                 let _ = KillTimer(Some(self.input), HIDE_TIMER);
@@ -172,7 +172,7 @@ impl App {
         // mascot timer, and resume the usual dock hiding delay after an act.
         unsafe {
             let _ = KillTimer(Some(self.input), MASCOT_TIMER);
-            if active && self.config.hides_automatically() {
+            if active && self.hides() {
                 SetTimer(Some(self.input), HIDE_TIMER, HIDE_DELAY_MS, None);
             }
         }

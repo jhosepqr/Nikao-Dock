@@ -156,7 +156,7 @@ impl App {
         }
         self.amount.target = 0.0;
         self.last_frame = Instant::now();
-        if self.config.hides_automatically() {
+        if self.hides() {
             // SAFETY: Timer on our own window.
             unsafe { SetTimer(Some(self.input), HIDE_TIMER, HIDE_DELAY_MS, None) };
         }

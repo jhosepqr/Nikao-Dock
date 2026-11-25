@@ -97,10 +97,7 @@ impl App {
     }
 
     pub(super) fn close_group_view(&mut self) {
-        if self.group_view.take().is_some()
-            && self.config.hides_automatically()
-            && !self.hovering
-            && self.drag.is_none()
+        if self.group_view.take().is_some() && self.hides() && !self.hovering && self.drag.is_none()
         {
             // SAFETY: Timer on our own window.
             unsafe { SetTimer(Some(self.input), HIDE_TIMER, HIDE_DELAY_MS, None) };
