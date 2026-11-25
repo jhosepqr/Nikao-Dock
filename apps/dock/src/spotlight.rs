@@ -19,17 +19,14 @@ use muelle_config::{Language, SearchMode};
 use muelle_shell::{launcher, system};
 use windows::{
     Win32::{
-        Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM},
+        Foundation::{COLORREF, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM},
         Graphics::Gdi::{
-            BeginPaint, CLIP_DEFAULT_PRECIS, CreateFontW, CreateSolidBrush, DT_END_ELLIPSIS,
-            DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, DeleteObject, DrawTextW, EndPaint, FillRect,
-            FrameRect, HBRUSH, HDC, HFONT, InvalidateRect, OUT_DEFAULT_PRECIS, PAINTSTRUCT,
-            SelectObject, SetBkColor, SetBkMode, SetTextColor, TRANSPARENT,
+            CLEARTYPE_QUALITY, CLIP_DEFAULT_PRECIS, CreateFontW, CreateSolidBrush, DEFAULT_CHARSET,
+            DeleteObject, HBRUSH, HDC, HFONT, OUT_DEFAULT_PRECIS, SetBkColor, SetTextColor,
         },
         System::{Com::CoTaskMemFree, LibraryLoader::GetModuleHandleW},
         UI::{
             Controls::SetWindowTheme,
-            HiDpi::GetDpiForWindow,
             Input::KeyboardAndMouse::{
                 SetFocus, VIRTUAL_KEY, VK_DOWN, VK_ESCAPE, VK_RETURN, VK_UP,
             },
@@ -38,13 +35,13 @@ use windows::{
             },
             WindowsAndMessaging::{
                 CS_DROPSHADOW, CallWindowProcW, CreateWindowExW, DefWindowProcW, DestroyWindow,
-                ES_AUTOHSCROLL, GWLP_WNDPROC, GetClientRect, GetWindowTextW, HWND_TOPMOST,
-                IDC_ARROW, IsWindowVisible, LoadCursorW, PostMessageW, RegisterClassW, SW_HIDE,
-                SW_SHOWNA, SWP_NOACTIVATE, SendMessageW, SetWindowLongPtrW, SetWindowPos,
-                SetWindowTextW, ShowWindow, WA_INACTIVE, WINDOW_EX_STYLE, WINDOW_STYLE,
-                WM_ACTIVATE, WM_APP, WM_COMMAND, WM_CTLCOLOREDIT, WM_DESTROY, WM_ERASEBKGND,
-                WM_KEYDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_PAINT, WM_SETFOCUS, WM_SETFONT,
-                WNDCLASSW, WNDPROC, WS_CHILD, WS_CLIPCHILDREN, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
+                ES_AUTOHSCROLL, GWLP_WNDPROC, GetWindowTextW, HWND_TOPMOST, IDC_ARROW,
+                IsWindowVisible, LoadCursorW, PostMessageW, RegisterClassW, SW_HIDE, SW_SHOWNA,
+                SWP_NOACTIVATE, SendMessageW, SetWindowLongPtrW, SetWindowPos, SetWindowTextW,
+                ShowWindow, WA_INACTIVE, WINDOW_EX_STYLE, WINDOW_STYLE, WM_ACTIVATE, WM_APP,
+                WM_COMMAND, WM_CTLCOLOREDIT, WM_DESTROY, WM_ERASEBKGND, WM_KEYDOWN, WM_LBUTTONUP,
+                WM_MOUSEMOVE, WM_SETFOCUS, WM_SETFONT, WNDCLASSW, WNDPROC, WS_CHILD,
+                WS_CLIPCHILDREN, WS_EX_NOREDIRECTIONBITMAP, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
                 WS_POPUP, WS_TABSTOP, WS_VISIBLE,
             },
         },
@@ -52,7 +49,12 @@ use windows::{
     core::{HSTRING, w},
 };
 
-use crate::{panel_theme::Palette, strings};
+use crate::{
+    gfx::Gfx,
+    panel_glass::{self, Canvas, Line, Round},
+    panel_theme::GlassTokens,
+    strings,
+};
 
 const MAX_SHORTCUTS: usize = 4_000;
 const MAX_DEPTH: u8 = 6;
@@ -91,6 +93,7 @@ struct Entry {
     detail: String,
 }
 
+#[derive(Clone)]
 struct Hit {
     index: usize,
     label: String,
@@ -98,19 +101,23 @@ struct Hit {
 }
 
 struct Panel {
+    /// Dropped on close, before `gfx`, so the tree releases first.
+    scene: Option<panel_glass::Scene>,
+    gfx: Gfx,
     hwnd: HWND,
     edit: HWND,
     font: HFONT,
+    font_scale: f32,
     edit_brush: HBRUSH,
-    fill_brush: HBRUSH,
-    select_brush: HBRUSH,
-    border_brush: HBRUSH,
-    palette: Palette,
+    edit_text: COLORREF,
+    field_color: COLORREF,
+    tokens: GlassTokens,
     scale: f32,
     anchor: POINT,
     /// The search field around the edit control, in client pixels.
     field: RECT,
     width: i32,
+    height: i32,
     row_top: i32,
     row_height: i32,
     entries: Vec<Entry>,
@@ -137,14 +144,14 @@ pub fn set_mode(mode: SearchMode) {
 
 /// Magnifier click. `anchor` is the button's centre, in screen pixels, on the
 /// bottom edge of the menu bar.
-pub fn activate(anchor: POINT) {
+pub fn activate(gfx: &Gfx, anchor: POINT) {
     match MODE.load(Ordering::Relaxed) {
         1 => launcher::open_search(),
-        _ => toggle(anchor),
+        _ => toggle(gfx, anchor),
     }
 }
 
-fn toggle(anchor: POINT) {
+fn toggle(gfx: &Gfx, anchor: POINT) {
     if visible() {
         hide(false);
         return;
@@ -155,7 +162,7 @@ fn toggle(anchor: POINT) {
         CLOSED_AT.with(|closed| closed.set(None));
         return;
     }
-    show(anchor);
+    show(gfx, anchor);
 }
 
 fn visible() -> bool {
@@ -166,9 +173,9 @@ fn visible() -> bool {
     })
 }
 
-fn show(anchor: POINT) {
+fn show(gfx: &Gfx, anchor: POINT) {
     if PANEL.with(|slot| slot.borrow().is_none())
-        && let Err(error) = create(anchor)
+        && let Err(error) = create(gfx, anchor)
     {
         eprintln!("muelle: buscador: {error}");
         return;
@@ -176,12 +183,26 @@ fn show(anchor: POINT) {
     let Some((hwnd, edit)) = PANEL.with(|slot| {
         let mut guard = slot.borrow_mut();
         let panel = guard.as_mut()?;
+        panel.gfx = gfx.clone();
+        panel.tokens = GlassTokens::current();
         panel.entries = catalog();
         panel.hits.clear();
         panel.selected = None;
         panel.notice = None;
-        apply_material(panel, Palette::current());
         place(panel, anchor, 0);
+        sync_edit(panel);
+        crate::panel_theme::style_window(panel.hwnd, panel.tokens);
+        if panel.scene.is_none() {
+            let attached = panel_glass::Scene::attach(&panel.gfx, panel.hwnd);
+            match attached {
+                Ok(scene) => panel.scene = Some(scene),
+                Err(error) => {
+                    muelle_shell::log::line(&format!("buscador: vidrio: {error:#}"));
+                    return None;
+                }
+            }
+        }
+        render(panel);
         Some((panel.hwnd, panel.edit))
     }) else {
         return;
@@ -218,13 +239,19 @@ fn hide(guard_reopen: bool) {
             let _ = ShowWindow(hwnd, SW_HIDE);
         }
     }
+    // The tree exists only while the panel is open.
+    PANEL.with(|slot| {
+        if let Some(panel) = slot.borrow_mut().as_mut() {
+            panel.scene = None;
+        }
+    });
     if guard_reopen {
         CLOSED_AT.with(|closed| closed.set(Some(Instant::now())));
     }
     BUSY.with(|busy| busy.set(false));
 }
 
-fn create(anchor: POINT) -> Result<(), windows::core::Error> {
+fn create(gfx: &Gfx, anchor: POINT) -> Result<(), windows::core::Error> {
     let class = w!("MuelleSpotlight");
     let instance = unsafe { GetModuleHandleW(None)? };
     unsafe {
@@ -239,7 +266,7 @@ fn create(anchor: POINT) -> Result<(), windows::core::Error> {
     }
     let hwnd = unsafe {
         CreateWindowExW(
-            WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
+            WS_EX_NOREDIRECTIONBITMAP | WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
             class,
             w!("Nikao Dock"),
             WS_POPUP | WS_CLIPCHILDREN,
@@ -285,30 +312,31 @@ fn create(anchor: POINT) -> Result<(), windows::core::Error> {
             SetWindowLongPtrW(edit, GWLP_WNDPROC, edit_proc as *const () as usize as isize);
         EDIT_PROC.store(previous, Ordering::Relaxed);
     }
-    let palette = Palette::current();
-    let brushes = brushes_for(palette);
-    let font = font_for(scale_of(hwnd));
+    let font = font_for(1.0);
     unsafe {
         let _ = SendMessageW(
             edit,
             WM_SETFONT,
             Some(WPARAM(font.0 as usize)),
-            Some(LPARAM(1)),
+            Some(LPARAM(0)),
         );
     }
-    let mut panel = Panel {
+    let panel = Panel {
+        scene: None,
+        gfx: gfx.clone(),
         hwnd,
         edit,
         font,
-        edit_brush: brushes.edit,
-        fill_brush: brushes.fill,
-        select_brush: brushes.select,
-        border_brush: brushes.border,
-        palette,
-        scale: scale_of(hwnd),
+        font_scale: 0.0,
+        edit_brush: unsafe { CreateSolidBrush(COLORREF(0x00FF_FFFF)) },
+        edit_text: COLORREF(0),
+        field_color: COLORREF(0),
+        tokens: GlassTokens::for_theme(true, false),
+        scale: 1.0,
         anchor,
         field: RECT::default(),
         width: 10,
+        height: 10,
         row_top: 0,
         row_height: 1,
         entries: Vec::new(),
@@ -316,28 +344,8 @@ fn create(anchor: POINT) -> Result<(), windows::core::Error> {
         selected: None,
         notice: None,
     };
-    crate::panel_theme::style_window(hwnd, palette);
-    place(&mut panel, anchor, 0);
     PANEL.with(|slot| *slot.borrow_mut() = Some(panel));
     Ok(())
-}
-
-struct Brushes {
-    edit: HBRUSH,
-    fill: HBRUSH,
-    select: HBRUSH,
-    border: HBRUSH,
-}
-
-fn brushes_for(palette: Palette) -> Brushes {
-    unsafe {
-        Brushes {
-            edit: CreateSolidBrush(palette.edit),
-            fill: CreateSolidBrush(palette.fill),
-            select: CreateSolidBrush(palette.select),
-            border: CreateSolidBrush(palette.border),
-        }
-    }
 }
 
 fn font_for(scale: f32) -> HFONT {
@@ -352,50 +360,44 @@ fn font_for(scale: f32) -> HFONT {
             0,
             0,
             0,
-            windows::Win32::Graphics::Gdi::DEFAULT_CHARSET,
+            DEFAULT_CHARSET,
             OUT_DEFAULT_PRECIS,
             CLIP_DEFAULT_PRECIS,
-            windows::Win32::Graphics::Gdi::CLEARTYPE_QUALITY,
+            CLEARTYPE_QUALITY,
             0,
             w!("Segoe UI"),
         )
     }
 }
 
-/// Colours follow the Windows app theme, read again on every open.
-fn apply_material(panel: &mut Panel, palette: Palette) {
-    if palette != panel.palette {
-        let previous = (
-            panel.edit_brush,
-            panel.fill_brush,
-            panel.select_brush,
-            panel.border_brush,
-        );
-        let brushes = brushes_for(palette);
-        panel.edit_brush = brushes.edit;
-        panel.fill_brush = brushes.fill;
-        panel.select_brush = brushes.select;
-        panel.border_brush = brushes.border;
-        panel.palette = palette;
+/// The EDIT stays a real control, so its font and opaque fill follow the
+/// theme. Called when the panel opens; keystrokes do not rebuild the font.
+fn sync_edit(panel: &mut Panel) {
+    if panel.font_scale != panel.scale {
+        let next = font_for(panel.scale);
         unsafe {
-            let _ = DeleteObject(previous.0.into());
-            let _ = DeleteObject(previous.1.into());
-            let _ = DeleteObject(previous.2.into());
-            let _ = DeleteObject(previous.3.into());
+            let _ = SendMessageW(
+                panel.edit,
+                WM_SETFONT,
+                Some(WPARAM(next.0 as usize)),
+                Some(LPARAM(0)),
+            );
+            let _ = DeleteObject(panel.font.into());
         }
+        panel.font = next;
+        panel.font_scale = panel.scale;
     }
-    let previous = panel.font;
-    panel.font = font_for(scale_of(panel.hwnd));
-    unsafe {
-        let _ = SendMessageW(
-            panel.edit,
-            WM_SETFONT,
-            Some(WPARAM(panel.font.0 as usize)),
-            Some(LPARAM(0)),
-        );
-        let _ = DeleteObject(previous.into());
+    let field = panel.tokens.field.colorref();
+    let text = panel.tokens.text.colorref();
+    if field != panel.field_color || text != panel.edit_text {
+        let brush = unsafe { CreateSolidBrush(field) };
+        unsafe {
+            let _ = DeleteObject(panel.edit_brush.into());
+        }
+        panel.edit_brush = brush;
+        panel.field_color = field;
+        panel.edit_text = text;
     }
-    crate::panel_theme::style_window(panel.hwnd, panel.palette);
 }
 
 fn place(panel: &mut Panel, anchor: POINT, rows: usize) {
@@ -415,6 +417,7 @@ fn place(panel: &mut Panel, anchor: POINT, rows: usize) {
     };
     let height = panel.row_top + body;
     panel.width = width;
+    panel.height = height;
     let (mut left, mut top) = (anchor.x - width / 2, anchor.y + px(scale, 8.0));
     if let Some(monitor) = monitor {
         let screen = monitor.screen;
@@ -457,9 +460,11 @@ fn place(panel: &mut Panel, anchor: POINT, rows: usize) {
 }
 
 fn refilter() {
-    let hwnd = PANEL.with(|slot| {
+    PANEL.with(|slot| {
         let mut guard = slot.borrow_mut();
-        let panel = guard.as_mut()?;
+        let Some(panel) = guard.as_mut() else {
+            return;
+        };
         let query = window_text(panel.edit);
         let (hits, notice) = filter(&panel.entries, &query);
         let rows = if notice.is_some() { 1 } else { hits.len() };
@@ -468,50 +473,39 @@ fn refilter() {
         panel.notice = notice;
         let anchor = panel.anchor;
         place(panel, anchor, rows);
-        Some(panel.hwnd)
+        render(panel);
     });
-    if let Some(hwnd) = hwnd {
-        unsafe {
-            let _ = InvalidateRect(Some(hwnd), None, false);
-        }
-    }
 }
 
 fn nudge(delta: isize) {
-    let hwnd = PANEL.with(|slot| {
+    PANEL.with(|slot| {
         let mut guard = slot.borrow_mut();
-        let panel = guard.as_mut()?;
+        let Some(panel) = guard.as_mut() else {
+            return;
+        };
         let len = panel.hits.len() as isize;
         if len == 0 {
-            return None;
+            return;
         }
         let current = panel.selected.unwrap_or(0) as isize;
         panel.selected = Some(current.wrapping_add(delta).rem_euclid(len) as usize);
-        Some(panel.hwnd)
+        render(panel);
     });
-    if let Some(hwnd) = hwnd {
-        unsafe {
-            let _ = InvalidateRect(Some(hwnd), None, false);
-        }
-    }
 }
 
 fn hover(y: i32) {
-    let hwnd = PANEL.with(|slot| {
+    PANEL.with(|slot| {
         let mut guard = slot.borrow_mut();
-        let panel = guard.as_mut()?;
+        let Some(panel) = guard.as_mut() else {
+            return;
+        };
         let next = row_at(panel, y);
         if next == panel.selected || next.is_none() {
-            return None;
+            return;
         }
         panel.selected = next;
-        Some(panel.hwnd)
+        render(panel);
     });
-    if let Some(hwnd) = hwnd {
-        unsafe {
-            let _ = InvalidateRect(Some(hwnd), None, false);
-        }
-    }
 }
 
 fn row_at(panel: &Panel, y: i32) -> Option<usize> {
@@ -557,11 +551,6 @@ fn window_text(hwnd: HWND) -> String {
     String::from_utf16_lossy(&buffer[..length])
 }
 
-fn scale_of(hwnd: HWND) -> f32 {
-    let dpi = unsafe { GetDpiForWindow(hwnd) };
-    if dpi == 0 { 1.0 } else { dpi as f32 / 96.0 }
-}
-
 fn px(scale: f32, value: f32) -> i32 {
     (value * scale).round() as i32
 }
@@ -574,14 +563,6 @@ unsafe extern "system" fn panel_proc(
 ) -> LRESULT {
     match message {
         WM_ERASEBKGND => LRESULT(1),
-        WM_PAINT => {
-            PANEL.with(|slot| {
-                if let Some(panel) = slot.borrow().as_ref() {
-                    paint(panel);
-                }
-            });
-            LRESULT(0)
-        }
         WM_CTLCOLOREDIT => {
             let hdc = HDC(wparam.0 as *mut core::ffi::c_void);
             let brush = PANEL.with(|slot| {
@@ -589,8 +570,8 @@ unsafe extern "system" fn panel_proc(
                     // Opaque text background: a transparent one leaves stale
                     // glyphs behind when the EDIT scrolls or deletes.
                     unsafe {
-                        let _ = SetTextColor(hdc, panel.palette.text);
-                        let _ = SetBkColor(hdc, panel.palette.edit);
+                        let _ = SetTextColor(hdc, panel.edit_text);
+                        let _ = SetBkColor(hdc, panel.field_color);
                     }
                     panel.edit_brush
                 })
@@ -700,106 +681,107 @@ unsafe extern "system" fn edit_proc(
     unsafe { CallWindowProcW(previous, hwnd, message, wparam, lparam) }
 }
 
-fn paint(panel: &Panel) {
-    let mut info = PAINTSTRUCT::default();
-    let hdc = unsafe { BeginPaint(panel.hwnd, &mut info) };
-    if hdc.0.is_null() {
+fn render(panel: &mut Panel) {
+    let Some(scene) = panel.scene.clone() else {
         return;
-    }
-    let mut client = RECT::default();
-    unsafe {
-        let _ = GetClientRect(panel.hwnd, &mut client);
-        FillRect(hdc, &client, panel.fill_brush);
-        FillRect(hdc, &panel.field, panel.edit_brush);
-        FrameRect(hdc, &panel.field, panel.border_brush);
-        let previous = SelectObject(hdc, panel.font.into());
-        let _ = SetBkMode(hdc, TRANSPARENT);
-        if let Some(notice) = panel.notice {
-            draw_line(hdc, panel, 0, notice, "", false, true);
-        } else {
-            for (index, hit) in panel.hits.iter().enumerate() {
-                draw_line(
-                    hdc,
-                    panel,
-                    index,
-                    &hit.label,
+    };
+    let hits = panel.hits.clone();
+    let selected = panel.selected;
+    let notice = panel.notice;
+    let scale = panel.scale;
+    let width = panel.width as f32;
+    let row_top = panel.row_top as f32;
+    let row_height = panel.row_height as f32;
+    let field = panel.field;
+    let canvas = Canvas {
+        width,
+        height: panel.height as f32,
+        scale,
+        tokens: panel.tokens,
+    };
+    if let Err(error) = scene.paint(&panel.gfx, &canvas, |surface| {
+        let tokens = surface.tokens();
+        let thickness = scale.round().max(1.0);
+        let field_box = Round {
+            x: field.left as f32,
+            y: field.top as f32,
+            w: (field.right - field.left) as f32,
+            h: (field.bottom - field.top) as f32,
+            radius: 7.0 * scale,
+        };
+        surface.fill(tokens.field, field_box)?;
+        surface.stroke(tokens.field_border, field_box, thickness)?;
+        let pad = (16.0 * scale).round();
+        if let Some(notice) = notice {
+            surface.text(
+                notice,
+                Line {
+                    x: pad,
+                    top: row_top,
+                    height: row_height,
+                    max_width: width - pad * 2.0,
+                },
+                15.0,
+                false,
+                tokens.secondary,
+            )?;
+            return Ok(());
+        }
+        for (index, hit) in hits.iter().enumerate() {
+            let top = row_top + index as f32 * row_height;
+            if selected == Some(index) {
+                surface.fill(
+                    tokens.select,
+                    Round {
+                        x: pad / 2.0,
+                        y: top,
+                        w: width - pad,
+                        h: row_height,
+                        radius: 6.0 * scale,
+                    },
+                )?;
+            }
+            let label_right = if hit.detail.is_empty() {
+                width - pad
+            } else {
+                width - (160.0 * scale).round()
+            };
+            surface.text(
+                &hit.label,
+                Line {
+                    x: pad,
+                    top,
+                    height: row_height,
+                    max_width: (label_right - pad).max(1.0),
+                },
+                15.0,
+                false,
+                tokens.text,
+            )?;
+            if !hit.detail.is_empty() {
+                surface.text(
                     &hit.detail,
-                    panel.selected == Some(index),
+                    Line {
+                        x: label_right,
+                        top,
+                        height: row_height,
+                        max_width: (width - pad - label_right).max(1.0),
+                    },
+                    15.0,
                     false,
-                );
+                    tokens.secondary,
+                )?;
             }
         }
-        let _ = SelectObject(hdc, previous);
-        let _ = EndPaint(panel.hwnd, &info);
-    }
-}
-
-fn draw_line(
-    hdc: HDC,
-    panel: &Panel,
-    index: usize,
-    label: &str,
-    detail: &str,
-    selected: bool,
-    dim: bool,
-) {
-    let pad = px(panel.scale, 16.0);
-    let top = panel.row_top + index as i32 * panel.row_height;
-    let row = RECT {
-        left: pad / 2,
-        top,
-        right: panel.width - pad / 2,
-        bottom: top + panel.row_height,
-    };
-    unsafe {
-        if selected {
-            FillRect(hdc, &row, panel.select_brush);
-        }
-        let color = if dim {
-            panel.palette.secondary
-        } else {
-            panel.palette.text
-        };
-        let _ = SetTextColor(hdc, color);
-        let mut name = row;
-        name.left = pad;
-        name.right = if detail.is_empty() {
-            panel.width - pad
-        } else {
-            panel.width - px(panel.scale, 160.0)
-        };
-        draw_text(hdc, label, &mut name);
-        if !detail.is_empty() {
-            let _ = SetTextColor(hdc, panel.palette.secondary);
-            let mut side = row;
-            side.left = name.right;
-            side.right = panel.width - pad;
-            draw_text(hdc, detail, &mut side);
-        }
-    }
-}
-
-fn draw_text(hdc: HDC, text: &str, rect: &mut RECT) {
-    let mut wide: Vec<u16> = text.encode_utf16().collect();
-    if wide.is_empty() {
-        return;
-    }
-    unsafe {
-        DrawTextW(
-            hdc,
-            &mut wide,
-            rect,
-            DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX,
-        );
+        Ok(())
+    }) {
+        muelle_shell::log::line(&format!("buscador: vidrio: {error:#}"));
     }
 }
 
 fn drop_panel(panel: Panel) {
     unsafe {
         let _ = DeleteObject(panel.edit_brush.into());
-        let _ = DeleteObject(panel.fill_brush.into());
-        let _ = DeleteObject(panel.select_brush.into());
-        let _ = DeleteObject(panel.border_brush.into());
         let _ = DeleteObject(panel.font.into());
     }
 }

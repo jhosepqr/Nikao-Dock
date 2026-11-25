@@ -62,8 +62,11 @@ item: no polling, no timers, no always-on work; closed panels cost nothing.
 | 4 | `hooks.nsh` prints `${PRODUCTNAME}` and sets `SetDetailsPrint none` from the pre-install hook through the post-install hook (and the same for uninstall), so the details list says "Nikao Dock" and no internal file names. The homepage and `REPOSITORY` now point at `jhosepqr/Nikao-Dock`. | Installer only. |
 | — | `.github/workflows/fork-installer.yml`: a push to `main` builds the installer artifact; only a manual run republishes `v0.1.22-glass.4`. | CI only. |
 
-Not done: the blurred glass look. The panels follow the app theme and are
-readable, but they are opaque.
+B1 and B2 are implemented. The glass colours are the two constants
+`GlassTokens::LIGHT_GLASS` and `GlassTokens::DARK_GLASS` in
+`apps/dock/src/panel_theme.rs`. F1 edits those and nothing else. When
+`system::transparency_enabled()` is false the panels use the opaque `Palette`
+instead (`GlassTokens::for_theme(..., false)`). Not verified on Windows yet.
 
 ## Kept internal identifiers (renaming them risks breaking upgrades)
 
@@ -79,6 +82,21 @@ MIT `LICENSE` copyright and the `credit` string in the 8 locales stay as they
 are.
 
 ## BACKEND work list (Grok 4.7 xhigh)
+
+Done in this change. Notes for F1 and for a Windows check:
+
+- Background: `menu::draw_tinted_background` (the same HostBackdrop plus tint
+  sprite as `draw_popup_background`), with the tint from `GlassTokens`.
+- Rim: a 1px composition stroke in `panel_glass::Scene::paint`, not GDI.
+  The DWM border is `DWMWA_COLOR_NONE` while glass is on, so it is not drawn
+  twice.
+- Text: `Gfx::text_brush_colored`, the same DirectWrite surfaces as the menu.
+- Search: the EDIT control is unchanged (IME, clipboard). It sits on an
+  opaque field sprite of `GlassTokens::field`. The frame is not extended.
+- `take_focus`, `SW_SHOWNA` and `CHECK_FOREGROUND` are unchanged. On focus
+  failure the log line now includes the foreground window class.
+- The `DesktopWindowTarget` is created in `show` and dropped in `hide`.
+  Redraws happen on open, on a key, on hover and on a power change.
 
 B1. Blurred glass for both panels, Composition only.
 - Give `spotlight.rs` and `battery.rs` a `DesktopWindowTarget` and a visual

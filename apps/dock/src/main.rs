@@ -29,6 +29,7 @@ mod media;
 mod menu;
 mod menubar;
 mod multi_window_view;
+mod panel_glass;
 mod panel_theme;
 mod recovery;
 mod scene;

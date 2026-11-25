@@ -18,31 +18,29 @@ use muelle_shell::{
 };
 use windows::{
     Win32::{
-        Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM},
-        Graphics::Gdi::{
-            BeginPaint, CLEARTYPE_QUALITY, CLIP_DEFAULT_PRECIS, CreateFontW, CreateSolidBrush,
-            DEFAULT_CHARSET, DT_END_ELLIPSIS, DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, DeleteObject,
-            DrawTextW, EndPaint, FillRect, HBRUSH, HDC, HFONT, InvalidateRect, OUT_DEFAULT_PRECIS,
-            PAINTSTRUCT, SelectObject, SetBkMode, SetTextColor, TRANSPARENT,
-        },
+        Foundation::{HWND, LPARAM, LRESULT, POINT, WPARAM},
         System::LibraryLoader::GetModuleHandleW,
         UI::{
-            HiDpi::GetDpiForWindow,
             Input::KeyboardAndMouse::{VIRTUAL_KEY, VK_ESCAPE, VK_RETURN},
             WindowsAndMessaging::{
-                CS_DROPSHADOW, CreateWindowExW, DefWindowProcW, GetClientRect, HWND_TOPMOST,
-                IDC_ARROW, IsWindowVisible, LoadCursorW, PBT_APMPOWERSTATUSCHANGE, PostMessageW,
+                CS_DROPSHADOW, CreateWindowExW, DefWindowProcW, HWND_TOPMOST, IDC_ARROW,
+                IsWindowVisible, LoadCursorW, PBT_APMPOWERSTATUSCHANGE, PostMessageW,
                 RegisterClassW, SW_HIDE, SW_SHOWNA, SWP_NOACTIVATE, SetWindowPos, ShowWindow,
                 WA_INACTIVE, WM_ACTIVATE, WM_APP, WM_DESTROY, WM_ERASEBKGND, WM_KEYDOWN,
-                WM_LBUTTONUP, WM_MOUSEMOVE, WM_PAINT, WM_POWERBROADCAST, WNDCLASSW,
-                WS_CLIPCHILDREN, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
+                WM_LBUTTONUP, WM_MOUSEMOVE, WM_POWERBROADCAST, WNDCLASSW, WS_CLIPCHILDREN,
+                WS_EX_NOREDIRECTIONBITMAP, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
             },
         },
     },
     core::w,
 };
 
-use crate::{panel_theme::Palette, strings};
+use crate::{
+    gfx::Gfx,
+    panel_glass::{self, Canvas, Line, Round},
+    panel_theme::GlassTokens,
+    strings,
+};
 
 /// A click that closes the panel by deactivating it is followed by the
 /// battery icon's own click. Ignore a reopen that close just caused.
@@ -58,6 +56,7 @@ thread_local! {
     static CLOSED_AT: Cell<Option<Instant>> = const { Cell::new(None) };
 }
 
+#[derive(Clone)]
 struct Lines {
     percent: Option<String>,
     rows: Vec<String>,
@@ -65,15 +64,16 @@ struct Lines {
 }
 
 struct Panel {
+    /// Dropped on close, before `gfx`, so the tree releases first.
+    scene: Option<panel_glass::Scene>,
+    gfx: Gfx,
     hwnd: HWND,
-    font: HFONT,
-    percent_font: HFONT,
-    fill_brush: HBRUSH,
-    select_brush: HBRUSH,
-    palette: Palette,
+    tokens: GlassTokens,
     anchor: POINT,
     lines: Lines,
+    scale: f32,
     width: i32,
+    height: i32,
     pad: i32,
     percent_h: i32,
     row_h: i32,
@@ -105,7 +105,7 @@ struct Words {
 
 /// Battery-icon click. `anchor` is the button's centre, in screen pixels, on
 /// the bottom edge of the menu bar.
-pub fn activate(anchor: POINT) {
+pub fn activate(gfx: &Gfx, anchor: POINT) {
     if visible() {
         hide(false);
         return;
@@ -116,7 +116,7 @@ pub fn activate(anchor: POINT) {
         CLOSED_AT.with(|closed| closed.set(None));
         return;
     }
-    show(anchor);
+    show(gfx, anchor);
 }
 
 fn visible() -> bool {
@@ -127,9 +127,9 @@ fn visible() -> bool {
     })
 }
 
-fn show(anchor: POINT) {
+fn show(gfx: &Gfx, anchor: POINT) {
     if PANEL.with(|slot| slot.borrow().is_none())
-        && let Err(error) = create(anchor)
+        && let Err(error) = create(gfx, anchor)
     {
         eprintln!("muelle: batería: {error}");
         return;
@@ -137,11 +137,24 @@ fn show(anchor: POINT) {
     let Some(hwnd) = PANEL.with(|slot| {
         let mut guard = slot.borrow_mut();
         let panel = guard.as_mut()?;
+        panel.gfx = gfx.clone();
+        panel.tokens = GlassTokens::current();
         panel.anchor = anchor;
         panel.hot = false;
-        restyle(panel, Palette::current());
         panel.lines = lines(system::battery_menu().as_ref(), &words());
         place(panel);
+        crate::panel_theme::style_window(panel.hwnd, panel.tokens);
+        if panel.scene.is_none() {
+            let attached = panel_glass::Scene::attach(&panel.gfx, panel.hwnd);
+            match attached {
+                Ok(scene) => panel.scene = Some(scene),
+                Err(error) => {
+                    muelle_shell::log::line(&format!("batería: vidrio: {error:#}"));
+                    return None;
+                }
+            }
+        }
+        render(panel);
         Some(panel.hwnd)
     }) else {
         return;
@@ -170,6 +183,12 @@ fn hide(guard_reopen: bool) {
             let _ = ShowWindow(hwnd, SW_HIDE);
         }
     }
+    // The tree exists only while the panel is open.
+    PANEL.with(|slot| {
+        if let Some(panel) = slot.borrow_mut().as_mut() {
+            panel.scene = None;
+        }
+    });
     if guard_reopen {
         CLOSED_AT.with(|closed| closed.set(Some(Instant::now())));
     }
@@ -177,24 +196,21 @@ fn hide(guard_reopen: bool) {
 }
 
 fn refresh_if_visible() {
-    let Some(hwnd) = PANEL.with(|slot| {
+    PANEL.with(|slot| {
         let mut guard = slot.borrow_mut();
-        let panel = guard.as_mut()?;
+        let Some(panel) = guard.as_mut() else {
+            return;
+        };
         if unsafe { !IsWindowVisible(panel.hwnd).as_bool() } {
-            return None;
+            return;
         }
         panel.lines = lines(system::battery_menu().as_ref(), &words());
         place(panel);
-        Some(panel.hwnd)
-    }) else {
-        return;
-    };
-    unsafe {
-        let _ = InvalidateRect(Some(hwnd), None, false);
-    }
+        render(panel);
+    });
 }
 
-fn create(anchor: POINT) -> Result<(), windows::core::Error> {
+fn create(gfx: &Gfx, anchor: POINT) -> Result<(), windows::core::Error> {
     let class = w!("MuelleBattery");
     let instance = unsafe { GetModuleHandleW(None)? };
     unsafe {
@@ -209,7 +225,7 @@ fn create(anchor: POINT) -> Result<(), windows::core::Error> {
     }
     let hwnd = unsafe {
         CreateWindowExW(
-            WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
+            WS_EX_NOREDIRECTIONBITMAP | WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
             class,
             w!("Nikao Dock"),
             WS_POPUP | WS_CLIPCHILDREN,
@@ -223,19 +239,16 @@ fn create(anchor: POINT) -> Result<(), windows::core::Error> {
             None,
         )?
     };
-    let palette = Palette::current();
-    let brushes = brushes_for(palette);
-    let scale = scale_of(hwnd);
-    let mut panel = Panel {
+    let panel = Panel {
+        scene: None,
+        gfx: gfx.clone(),
         hwnd,
-        font: font_for(scale, 13.0),
-        percent_font: font_for(scale, 22.0),
-        fill_brush: brushes.fill,
-        select_brush: brushes.select,
-        palette,
+        tokens: GlassTokens::for_theme(true, false),
         anchor,
         lines: lines(None, &words()),
+        scale: 1.0,
         width: 10,
+        height: 10,
         pad: 16,
         percent_h: 0,
         row_h: 24,
@@ -243,71 +256,8 @@ fn create(anchor: POINT) -> Result<(), windows::core::Error> {
         link_height: 1,
         hot: false,
     };
-    crate::panel_theme::style_window(hwnd, palette);
-    place(&mut panel);
     PANEL.with(|slot| *slot.borrow_mut() = Some(panel));
     Ok(())
-}
-
-struct Brushes {
-    fill: HBRUSH,
-    select: HBRUSH,
-}
-
-fn brushes_for(palette: Palette) -> Brushes {
-    unsafe {
-        Brushes {
-            fill: CreateSolidBrush(palette.fill),
-            select: CreateSolidBrush(palette.select),
-        }
-    }
-}
-
-fn font_for(scale: f32, points: f32) -> HFONT {
-    let height = -px(scale, points);
-    unsafe {
-        CreateFontW(
-            height,
-            0,
-            0,
-            0,
-            if points > 16.0 { 600 } else { 400 },
-            0,
-            0,
-            0,
-            DEFAULT_CHARSET,
-            OUT_DEFAULT_PRECIS,
-            CLIP_DEFAULT_PRECIS,
-            CLEARTYPE_QUALITY,
-            0,
-            w!("Segoe UI"),
-        )
-    }
-}
-
-/// Fonts follow the monitor scale and colours the app theme, both read again
-/// on every open.
-fn restyle(panel: &mut Panel, palette: Palette) {
-    let scale = scale_of(panel.hwnd);
-    let previous = (panel.font, panel.percent_font);
-    panel.font = font_for(scale, 13.0);
-    panel.percent_font = font_for(scale, 22.0);
-    unsafe {
-        let _ = DeleteObject(previous.0.into());
-        let _ = DeleteObject(previous.1.into());
-    }
-    if palette != panel.palette {
-        let brushes = brushes_for(palette);
-        let previous = (panel.fill_brush, panel.select_brush);
-        panel.fill_brush = brushes.fill;
-        panel.select_brush = brushes.select;
-        panel.palette = palette;
-        unsafe {
-            let _ = DeleteObject(previous.0.into());
-            let _ = DeleteObject(previous.1.into());
-        }
-    }
-    crate::panel_theme::style_window(panel.hwnd, panel.palette);
 }
 
 fn place(panel: &mut Panel) {
@@ -325,7 +275,9 @@ fn place(panel: &mut Panel) {
     let gap = px(scale, 8.0);
     let width = px(scale, 300.0).max(220);
     let height = pad + percent_h + panel.lines.rows.len() as i32 * row_h + gap + link_h + pad;
+    panel.scale = scale;
     panel.width = width;
+    panel.height = height;
     panel.pad = pad;
     panel.percent_h = percent_h;
     panel.row_h = row_h;
@@ -359,11 +311,6 @@ fn open_settings() {
     }
 }
 
-fn scale_of(hwnd: HWND) -> f32 {
-    let dpi = unsafe { GetDpiForWindow(hwnd) };
-    if dpi == 0 { 1.0 } else { dpi as f32 / 96.0 }
-}
-
 fn px(scale: f32, value: f32) -> i32 {
     (value * scale).round() as i32
 }
@@ -380,14 +327,6 @@ unsafe extern "system" fn panel_proc(
 ) -> LRESULT {
     match message {
         WM_ERASEBKGND => LRESULT(1),
-        WM_PAINT => {
-            PANEL.with(|slot| {
-                if let Some(panel) = slot.borrow().as_ref() {
-                    paint(panel);
-                }
-            });
-            LRESULT(0)
-        }
         WM_POWERBROADCAST => {
             if wparam.0 as u32 == PBT_APMPOWERSTATUSCHANGE {
                 refresh_if_visible();
@@ -405,21 +344,18 @@ unsafe extern "system" fn panel_proc(
         }
         WM_MOUSEMOVE => {
             let y = hi_word(lparam);
-            let hwnd = PANEL.with(|slot| {
+            PANEL.with(|slot| {
                 let mut guard = slot.borrow_mut();
-                let panel = guard.as_mut()?;
+                let Some(panel) = guard.as_mut() else {
+                    return;
+                };
                 let hot = y >= panel.link_top && y < panel.link_top + panel.link_height;
                 if hot == panel.hot {
-                    return None;
+                    return;
                 }
                 panel.hot = hot;
-                Some(panel.hwnd)
+                render(panel);
             });
-            if let Some(hwnd) = hwnd {
-                unsafe {
-                    let _ = InvalidateRect(Some(hwnd), None, false);
-                }
-            }
             LRESULT(0)
         }
         WM_LBUTTONUP => {
@@ -449,105 +385,97 @@ unsafe extern "system" fn panel_proc(
             LRESULT(0)
         }
         WM_DESTROY => {
-            PANEL.with(|slot| {
-                if let Some(panel) = slot.borrow_mut().take() {
-                    drop_panel(panel);
-                }
-            });
+            PANEL.with(|slot| slot.borrow_mut().take());
             LRESULT(0)
         }
         _ => unsafe { DefWindowProcW(hwnd, message, wparam, lparam) },
     }
 }
 
-fn paint(panel: &Panel) {
-    let mut info = PAINTSTRUCT::default();
-    let hdc = unsafe { BeginPaint(panel.hwnd, &mut info) };
-    if hdc.0.is_null() {
+fn render(panel: &mut Panel) {
+    let Some(scene) = panel.scene.clone() else {
         return;
-    }
-    let mut client = RECT::default();
-    unsafe {
-        let _ = GetClientRect(panel.hwnd, &mut client);
-        FillRect(hdc, &client, panel.fill_brush);
-        let _ = SetBkMode(hdc, TRANSPARENT);
-        draw_lines(hdc, panel);
-        let _ = EndPaint(panel.hwnd, &info);
-    }
-}
-
-fn draw_lines(hdc: HDC, panel: &Panel) {
-    let pad = panel.pad;
-    let mut top = pad;
-    unsafe {
-        let _ = SetTextColor(hdc, panel.palette.text);
-        if let Some(percent) = &panel.lines.percent {
-            let mut row = line_rect(panel, top, panel.percent_h, pad);
-            let previous = SelectObject(hdc, panel.percent_font.into());
-            draw_text(hdc, percent, &mut row);
-            let _ = SelectObject(hdc, previous);
-            top += panel.percent_h;
+    };
+    let lines = panel.lines.clone();
+    let hot = panel.hot;
+    let pad = panel.pad as f32;
+    let percent_h = panel.percent_h as f32;
+    let row_h = panel.row_h as f32;
+    let link_top = panel.link_top as f32;
+    let link_height = panel.link_height as f32;
+    let width = panel.width as f32;
+    let scale = panel.scale;
+    let canvas = Canvas {
+        width,
+        height: panel.height as f32,
+        scale,
+        tokens: panel.tokens,
+    };
+    if let Err(error) = scene.paint(&panel.gfx, &canvas, |surface| {
+        let tokens = surface.tokens();
+        let mut top = pad;
+        if let Some(percent) = &lines.percent {
+            surface.text(
+                percent,
+                Line {
+                    x: pad,
+                    top,
+                    height: percent_h,
+                    max_width: width - pad * 2.0,
+                },
+                22.0,
+                true,
+                tokens.text,
+            )?;
+            top += percent_h;
         }
-        let previous = SelectObject(hdc, panel.font.into());
-        let row_h = panel.row_h;
-        for (index, row_text) in panel.lines.rows.iter().enumerate() {
+        for (index, row) in lines.rows.iter().enumerate() {
             // The charge state reads first; the details are secondary.
             let color = if index == 0 {
-                panel.palette.text
+                tokens.text
             } else {
-                panel.palette.secondary
+                tokens.secondary
             };
-            let _ = SetTextColor(hdc, color);
-            let mut row = line_rect(panel, top, row_h, pad);
-            draw_text(hdc, row_text, &mut row);
-            top += row_h;
+            surface.text(
+                row,
+                Line {
+                    x: pad,
+                    top: top + index as f32 * row_h,
+                    height: row_h,
+                    max_width: width - pad * 2.0,
+                },
+                13.0,
+                false,
+                color,
+            )?;
         }
-        if panel.hot {
-            let row = RECT {
-                left: pad / 2,
-                top: panel.link_top,
-                right: panel.width - pad / 2,
-                bottom: panel.link_top + panel.link_height,
-            };
-            FillRect(hdc, &row, panel.select_brush);
+        if hot {
+            surface.fill(
+                tokens.select,
+                Round {
+                    x: pad / 2.0,
+                    y: link_top,
+                    w: width - pad,
+                    h: link_height,
+                    radius: 6.0 * scale,
+                },
+            )?;
         }
-        let _ = SetTextColor(hdc, panel.palette.link);
-        let mut link = line_rect(panel, panel.link_top, panel.link_height, pad);
-        draw_text(hdc, &panel.lines.link, &mut link);
-        let _ = SelectObject(hdc, previous);
-    }
-}
-
-fn line_rect(panel: &Panel, top: i32, height: i32, pad: i32) -> RECT {
-    RECT {
-        left: pad,
-        top,
-        right: panel.width - pad,
-        bottom: top + height,
-    }
-}
-
-fn draw_text(hdc: HDC, text: &str, rect: &mut RECT) {
-    let mut wide: Vec<u16> = text.encode_utf16().collect();
-    if wide.is_empty() {
-        return;
-    }
-    unsafe {
-        DrawTextW(
-            hdc,
-            &mut wide,
-            rect,
-            DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX,
-        );
-    }
-}
-
-fn drop_panel(panel: Panel) {
-    unsafe {
-        let _ = DeleteObject(panel.fill_brush.into());
-        let _ = DeleteObject(panel.select_brush.into());
-        let _ = DeleteObject(panel.font.into());
-        let _ = DeleteObject(panel.percent_font.into());
+        surface.text(
+            &lines.link,
+            Line {
+                x: pad,
+                top: link_top,
+                height: link_height,
+                max_width: width - pad * 2.0,
+            },
+            13.0,
+            false,
+            tokens.link,
+        )?;
+        Ok(())
+    }) {
+        muelle_shell::log::line(&format!("batería: vidrio: {error:#}"));
     }
 }
 

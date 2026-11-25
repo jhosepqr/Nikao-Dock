@@ -847,7 +847,18 @@ pub(crate) fn draw_popup_background(
     width: f32,
     height: f32,
 ) -> Result<()> {
-    let tint = popup_tint(dark, glass);
+    draw_tinted_background(layers, popup_tint(dark, glass), glass, width, height)
+}
+
+/// Host backdrop (when `glass`) plus a tint sprite. `draw_popup_background`
+/// uses the menu tint; the search and battery panels pass their own.
+pub(crate) fn draw_tinted_background(
+    layers: &VisualCollection,
+    tint: Color,
+    glass: bool,
+    width: f32,
+    height: f32,
+) -> Result<()> {
     let compositor = layers.Compositor()?;
     if glass {
         add_sprite(
@@ -970,7 +981,7 @@ fn rgba(r: u8, g: u8, b: u8, a: u8) -> Color {
     }
 }
 
-fn add_sprite(
+pub(crate) fn add_sprite(
     layers: &windows::UI::Composition::VisualCollection,
     brush: windows::UI::Composition::CompositionBrush,
     x: f32,

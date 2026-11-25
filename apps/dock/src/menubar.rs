@@ -1868,16 +1868,22 @@ impl MenuBar {
         match hit.map(|(_, _, action)| *action) {
             Some(Action::AccessoryIndicator) => {}
             Some(Action::QuickSettings) => launcher::open_quick_settings(),
-            Some(Action::Battery) => crate::battery::activate(POINT {
-                x: anchor.0,
-                y: anchor.1,
-            }),
+            Some(Action::Battery) => crate::battery::activate(
+                gfx,
+                POINT {
+                    x: anchor.0,
+                    y: anchor.1,
+                },
+            ),
             Some(Action::Notifications) => launcher::open_notifications(),
             Some(Action::Sound) => launcher::open_sound(),
-            Some(Action::Search) => crate::spotlight::activate(POINT {
-                x: anchor.0,
-                y: anchor.1,
-            }),
+            Some(Action::Search) => crate::spotlight::activate(
+                gfx,
+                POINT {
+                    x: anchor.0,
+                    y: anchor.1,
+                },
+            ),
             Some(Action::TaskView) => launcher::open_task_view(),
             Some(Action::Widgets) => launcher::open_widgets(),
             Some(Action::Bluetooth) => launcher::open_bluetooth(),
