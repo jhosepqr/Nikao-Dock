@@ -9,10 +9,18 @@ use windows::{
         Foundation::{CloseHandle, HANDLE, HWND, LPARAM, RECT, WPARAM},
         Security::{GetTokenInformation, TOKEN_ELEVATION, TOKEN_QUERY, TokenElevation},
         System::{
+            Com::{
+                CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx,
+                CoUninitialize,
+            },
             Diagnostics::Debug::{SEM_FAILCRITICALERRORS, SEM_NOOPENFILEERRORBOX, SetErrorMode},
             Threading::{OpenProcess, OpenProcessToken, PROCESS_QUERY_LIMITED_INFORMATION},
         },
         UI::{
+            Accessibility::{
+                CUIAutomation, IUIAutomation, IUIAutomationInvokePattern, TreeScope_Descendants,
+                UIA_AutomationIdPropertyId, UIA_ClassNamePropertyId, UIA_InvokePatternId,
+            },
             Input::KeyboardAndMouse::{
                 INPUT, INPUT_0, INPUT_KEYBOARD, KEYBD_EVENT_FLAGS, KEYBDINPUT, KEYEVENTF_KEYUP,
                 SendInput, VIRTUAL_KEY, VK_A, VK_B, VK_D, VK_ESCAPE, VK_LCONTROL, VK_LWIN, VK_N,
@@ -233,6 +241,8 @@ pub fn show_desktop() {
     tap(&[VK_LWIN, VK_D]);
 }
 
+/// How long a pressed "^" button gets to show its flyout before Win+B is tried.
+const HIDDEN_ICONS_INVOKE_WAIT: Duration = Duration::from_millis(500);
 /// How long the taskbar takes to put the focus on its notification area.
 const HIDDEN_ICONS_DELAY: Duration = Duration::from_millis(250);
 /// How long the flyout is kept under the arrow while Windows finishes
@@ -246,10 +256,10 @@ const OVERFLOW_CLASSES: [PCWSTR; 2] = [
     w!("NotifyIconOverflowWindow"),
 ];
 
-/// The notification area's hidden icons, the taskbar's "^" button: Win+B
-/// moves the focus to that button and Enter opens it. The taskbar itself
-/// stays invisible while Muelle runs; only its flyout shows. Windows offers
-/// no other way: the button is not exposed while the taskbar is hidden.
+/// The notification area's hidden icons, the taskbar's "^" button. The
+/// taskbar is only transparent and auto-hidden while Muelle runs, so the
+/// button is still there to press through UI Automation; when that fails,
+/// Win+B moves the focus to it and Enter opens it. Only the flyout shows.
 ///
 /// Windows opens the flyout at the bottom of the screen, above where the
 /// taskbar would be, so it is then moved under the arrow that opened it:
@@ -277,14 +287,21 @@ pub fn toggle_hidden_icons(anchor: (i32, i32)) {
         // The press itself already dismissed it.
         return;
     }
-    // Win+B gives the hidden taskbar the focus on purpose: the dock must
-    // leave it there until Enter has opened the flyout.
+    // The hidden taskbar may take the focus while the flyout opens: the dock
+    // must leave it there.
     OPENING_HIDDEN_ICONS.store(true, Ordering::Relaxed);
-    tap(&[VK_LWIN, VK_B]);
-    // The rest waits on its own short-lived thread so the dock never sleeps.
+    // Everything waits on its own short-lived thread so the dock never sleeps
+    // or blocks on Explorer.
     std::thread::spawn(move || {
-        std::thread::sleep(HIDDEN_ICONS_DELAY);
-        tap(&[VK_RETURN]);
+        if !(invoke_chevron() && wait_for_overflow(HIDDEN_ICONS_INVOKE_WAIT)) {
+            tap(&[VK_LWIN, VK_B]);
+            std::thread::sleep(HIDDEN_ICONS_DELAY);
+            // Enter only where Win+B put the focus; never into the user's app.
+            // SAFETY: Read-only query of the foreground window.
+            if crate::taskbar::is_hidden(unsafe { GetForegroundWindow() }) {
+                tap(&[VK_RETURN]);
+            }
+        }
         let until = Instant::now() + HIDDEN_ICONS_HOLD;
         while Instant::now() < until {
             if let Some(flyout) = open_overflow() {
@@ -334,6 +351,70 @@ static OVERFLOW_OPEN_AT_PRESS: AtomicBool = AtomicBool::new(false);
 /// Call on mouse-button down over the menu bar, before its click.
 pub fn note_menu_bar_press() {
     OVERFLOW_OPEN_AT_PRESS.store(open_overflow().is_some(), Ordering::Relaxed);
+}
+
+/// Presses the hidden taskbar's "^" button through UI Automation, as a
+/// screen reader would: Windows 11's XAML tray (`SystemTrayIcon`, or its
+/// `SystemTray.ChevronIconView`), then Windows 10's chevron (control 1502).
+/// `false` when the button or its Invoke pattern is missing.
+fn invoke_chevron() -> bool {
+    // SAFETY: COM is initialized for this short-lived thread and every
+    // interface is released before `CoUninitialize`.
+    unsafe {
+        let apartment = CoInitializeEx(None, COINIT_MULTITHREADED).is_ok();
+        let invoked = (|| -> windows::core::Result<()> {
+            let taskbar = FindWindowW(w!("Shell_TrayWnd"), None)?;
+            let automation: IUIAutomation =
+                CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER)?;
+            let root = automation.ElementFromHandle(taskbar)?;
+            let conditions = [
+                automation.CreatePropertyCondition(
+                    UIA_AutomationIdPropertyId,
+                    &"SystemTrayIcon".into(),
+                )?,
+                automation.CreatePropertyCondition(
+                    UIA_ClassNamePropertyId,
+                    &"SystemTray.ChevronIconView".into(),
+                )?,
+                automation.CreatePropertyCondition(UIA_AutomationIdPropertyId, &"1502".into())?,
+            ]
+            .map(Some);
+            let found = root.FindFirst(
+                TreeScope_Descendants,
+                &automation.CreateOrConditionFromNativeArray(&conditions)?,
+            )?;
+            // The match can be the glyph inside the button: climb to the
+            // nearest element that can be pressed.
+            let walker = automation.ControlViewWalker()?;
+            let mut element = found;
+            for _ in 0..4 {
+                if let Ok(invoke) =
+                    element.GetCurrentPatternAs::<IUIAutomationInvokePattern>(UIA_InvokePatternId)
+                {
+                    return invoke.Invoke();
+                }
+                element = walker.GetParentElement(&element)?;
+            }
+            Err(windows::core::Error::empty())
+        })()
+        .is_ok();
+        if apartment {
+            CoUninitialize();
+        }
+        invoked
+    }
+}
+
+/// Waits up to `limit` for the hidden-icons flyout to show.
+fn wait_for_overflow(limit: Duration) -> bool {
+    let until = Instant::now() + limit;
+    while Instant::now() < until {
+        if open_overflow().is_some() {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    false
 }
 
 /// The hidden-icons flyout, if it is open.
