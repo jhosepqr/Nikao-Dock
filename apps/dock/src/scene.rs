@@ -67,12 +67,21 @@ const AURORA: [Color; 3] = [
     rgba(246, 96, 182, 132),
 ];
 
+/// Extra white over the transparency setting's tint, so the glass reads a
+/// little brighter than the wallpaper behind it at every level.
+const GLASS_LIFT: u8 = 14;
+
 /// Glass tint and backdrop strength. White at a low alpha lifts the live
 /// blur without turning a dark wallpaper into a gray slab.
 fn glass_fill(transparency: u8, blur: u8, glass: bool, translucent: bool) -> (Color, f32) {
     if glass {
         (
-            rgba(255, 255, 255, glass_tint_alpha(transparency)),
+            rgba(
+                255,
+                255,
+                255,
+                glass_tint_alpha(transparency).saturating_add(GLASS_LIFT),
+            ),
             glass_backdrop_opacity(blur),
         )
     } else if translucent {
@@ -131,9 +140,9 @@ impl Theme {
             Material::Frosted => (70, 0.55, false, [210, 70, 55, 150]),
             // All the light is on the edge, like a lens.
             Material::Clear => (56, 0.55, false, [235, 80, 60, 190]),
-            // Clear Liquid Glass: bright top specular lip and corner-weighted
-            // luminous hairline rim, matching the glass pill reference.
-            Material::Glass => (235, 0.16, true, [255, 165, 145, 245]),
+            // Clear Liquid Glass: a soft gloss over the upper half and no rim,
+            // so the edge is as clear as the glass itself.
+            Material::Glass => (110, 0.55, true, [0; 4]),
         };
         let panel_tint = match material {
             Material::Clear => pick(rgba(24, 24, 28, 150), tint),
@@ -344,24 +353,26 @@ impl GlassSurface {
             glass.Children()?.InsertAtTop(&fill)?;
         }
 
-        let rim_brush = c.CreateLinearGradientBrush()?;
-        rim_brush.SetStartPoint(v2(0.0, 0.0))?;
-        rim_brush.SetEndPoint(v2(1.0, 1.0))?;
-        rim_brush.SetInterpolationSpace(CompositionColorSpace::RgbLinear)?;
-        let stops = rim_brush.ColorStops()?;
-        for (at, alpha) in [0.0, 0.35, 0.65, 1.0].into_iter().zip(theme.rim) {
-            stops.Append(
-                &c.CreateColorGradientStopWithOffsetAndColor(at, rgba(255, 255, 255, alpha))?,
-            )?;
-        }
         let rim_geometry = c.CreateRoundedRectangleGeometry()?;
         rim_geometry.SetOffset(v2(stroke / 2.0, stroke / 2.0))?;
         rim_geometry.SetCornerRadius(v2(radius - stroke / 2.0, radius - stroke / 2.0))?;
-        let rim_shape = c.CreateSpriteShapeWithGeometry(&rim_geometry)?;
-        rim_shape.SetStrokeBrush(&rim_brush)?;
-        rim_shape.SetStrokeThickness(stroke)?;
         let rim = c.CreateShapeVisual()?;
-        rim.Shapes()?.Append(&rim_shape)?;
+        if theme.rim.iter().any(|&alpha| alpha > 0) {
+            let rim_brush = c.CreateLinearGradientBrush()?;
+            rim_brush.SetStartPoint(v2(0.0, 0.0))?;
+            rim_brush.SetEndPoint(v2(1.0, 1.0))?;
+            rim_brush.SetInterpolationSpace(CompositionColorSpace::RgbLinear)?;
+            let stops = rim_brush.ColorStops()?;
+            for (at, alpha) in [0.0, 0.35, 0.65, 1.0].into_iter().zip(theme.rim) {
+                stops.Append(
+                    &c.CreateColorGradientStopWithOffsetAndColor(at, rgba(255, 255, 255, alpha))?,
+                )?;
+            }
+            let rim_shape = c.CreateSpriteShapeWithGeometry(&rim_geometry)?;
+            rim_shape.SetStrokeBrush(&rim_brush)?;
+            rim_shape.SetStrokeThickness(stroke)?;
+            rim.Shapes()?.Append(&rim_shape)?;
+        }
         Ok(Self {
             glass,
             outline,
@@ -1084,12 +1095,12 @@ mod theme_tests {
     #[test]
     fn glass_theme_uses_tuned_light_glass_visuals_and_panel_floor() {
         let default = Theme::new(glass_look(true, true, 90, 45));
-        assert_eq!(default.tint, rgba(255, 255, 255, 25));
+        assert_eq!(default.tint, rgba(255, 255, 255, 39));
         assert_eq!(default.backdrop_opacity, 0.45);
-        assert_eq!(default.sheen, 235);
-        assert_eq!(default.sheen_end, 0.16);
+        assert_eq!(default.sheen, 110);
+        assert_eq!(default.sheen_end, 0.55);
         assert!(default.specular);
-        assert_eq!(default.rim, [255, 165, 145, 245]);
+        assert_eq!(default.rim, [0; 4]);
         assert_eq!(default.shadow, rgba(0, 0, 0, 40));
         assert_eq!(default.shadow_blur, 30.0);
         assert_eq!(default.shadow_offset, 6.0);
@@ -1102,10 +1113,10 @@ mod theme_tests {
         // The value glass.1 wrote into existing files. It must not come back
         // as the old alpha-95 wash.
         let shipped = Theme::new(glass_look(true, true, 65, 100));
-        assert_eq!(shipped.tint.A, 50);
+        assert_eq!(shipped.tint.A, 64);
 
         let clear = Theme::new(glass_look(true, true, 100, 100));
-        assert_eq!(clear.tint.A, 15);
+        assert_eq!(clear.tint.A, 29);
         assert_eq!(clear.panel_tint.A, 150);
 
         let solid = Theme::new(glass_look(false, false, 65, 100));
