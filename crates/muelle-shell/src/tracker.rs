@@ -581,6 +581,11 @@ fn workspace_cloak_allowed(cloaked: u32, show_other_workspaces: bool) -> bool {
     cloaked == 0 || (show_other_workspaces && cloaked == DWM_CLOAKED_SHELL)
 }
 
+/// The desktop itself (its wallpaper and icons), without the taskbar.
+pub fn is_wallpaper(hwnd: HWND) -> bool {
+    matches!(class_name(hwnd).as_str(), "Progman" | "WorkerW")
+}
+
 /// The desktop and the (hidden) taskbar: shell windows, not apps.
 pub fn is_desktop(hwnd: HWND) -> bool {
     matches!(

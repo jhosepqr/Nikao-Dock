@@ -362,9 +362,12 @@ impl App {
 
     /// Hides the dock while an app window maximized on its monitor is in
     /// front, and releases the reserved strip so that window fills the screen.
-    /// Our own panels, Start and other shell surfaces taking the foreground
-    /// keep the current state: flipping it would resize every maximized
-    /// window behind them.
+    ///
+    /// Only an app window the dock lists, or the desktop itself, can end that
+    /// state. The taskbar and its hidden-icons flyout, our own panels and
+    /// menu bar, Start and other shell pop-ups, and the moments with no
+    /// foreground window at all keep it: flipping it there would bring the
+    /// reserved strip back and Windows would shrink every maximized window.
     fn update_maximized(&mut self, front: isize) -> Result<()> {
         let on_dock_screen = self
             .stage
@@ -372,9 +375,9 @@ impl App {
             .is_some_and(|stage| tracker::is_maximized_on(front, stage.key.screen));
         let maximized = if on_dock_screen {
             true
-        } else if front == 0
-            || tracker::is_desktop(HWND(front as *mut _))
-            || self.windows.iter().any(|window| window.hwnd == front)
+        } else if front != 0
+            && (tracker::is_wallpaper(HWND(front as *mut _))
+                || self.windows.iter().any(|window| window.hwnd == front))
         {
             false
         } else {
@@ -384,14 +387,25 @@ impl App {
             return Ok(());
         }
         self.maximized_front = maximized;
+        muelle_shell::log::line(&format!(
+            "{} por ventana maximizada (al frente: {})",
+            if maximized { "se oculta" } else { "vuelve" },
+            tracker::foreground_class()
+        ));
+        // The slide runs on the compositor, so the synchronous call to
+        // Explorer cannot stall it. Hiding, the dock starts gliding away
+        // before the window grows under it; showing, the windows make room
+        // first and the dock glides into it.
         if maximized {
-            self.reserve_space();
             self.hide_if_unused()?;
+            self.render()?;
+            self.reserve_space();
         } else {
-            self.hide_if_unused()?;
             self.reserve_space();
+            self.hide_if_unused()?;
+            self.render()?;
         }
-        self.render()
+        Ok(())
     }
 
     pub(super) fn on_appbar_notice(&mut self, notice: usize) -> Result<()> {
