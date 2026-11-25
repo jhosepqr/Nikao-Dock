@@ -8,7 +8,6 @@
 
 use std::{
     cell::{Cell, RefCell},
-    mem::size_of,
     time::{Duration, Instant},
 };
 
@@ -19,49 +18,39 @@ use muelle_shell::{
 };
 use windows::{
     Win32::{
-        Foundation::{COLORREF, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM},
-        Graphics::{
-            Dwm::{
-                DWMSBT_TRANSIENTWINDOW, DWMWA_SYSTEMBACKDROP_TYPE, DWMWA_USE_HOSTBACKDROPBRUSH,
-                DWMWA_USE_IMMERSIVE_DARK_MODE, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND,
-                DwmExtendFrameIntoClientArea, DwmSetWindowAttribute,
-            },
-            Gdi::{
-                BeginPaint, CLEARTYPE_QUALITY, CLIP_DEFAULT_PRECIS, CreateFontW, CreateSolidBrush,
-                DEFAULT_CHARSET, DT_END_ELLIPSIS, DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER,
-                DeleteObject, DrawTextW, EndPaint, FillRect, FrameRect, HBRUSH, HDC, HFONT,
-                InvalidateRect, OUT_DEFAULT_PRECIS, PAINTSTRUCT, SelectObject, SetBkMode,
-                SetTextColor, TRANSPARENT,
-            },
+        Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM},
+        Graphics::Gdi::{
+            BeginPaint, CLEARTYPE_QUALITY, CLIP_DEFAULT_PRECIS, CreateFontW, CreateSolidBrush,
+            DEFAULT_CHARSET, DT_END_ELLIPSIS, DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, DeleteObject,
+            DrawTextW, EndPaint, FillRect, HBRUSH, HDC, HFONT, InvalidateRect, OUT_DEFAULT_PRECIS,
+            PAINTSTRUCT, SelectObject, SetBkMode, SetTextColor, TRANSPARENT,
         },
-        System::{
-            LibraryLoader::GetModuleHandleW,
-            Threading::{AttachThreadInput, GetCurrentThreadId},
-        },
+        System::LibraryLoader::GetModuleHandleW,
         UI::{
-            Controls::MARGINS,
             HiDpi::GetDpiForWindow,
-            Input::KeyboardAndMouse::{SetFocus, VIRTUAL_KEY, VK_ESCAPE, VK_RETURN},
+            Input::KeyboardAndMouse::{VIRTUAL_KEY, VK_ESCAPE, VK_RETURN},
             WindowsAndMessaging::{
-                CS_DROPSHADOW, CreateWindowExW, DefWindowProcW, GetClientRect, GetForegroundWindow,
-                GetWindowThreadProcessId, HWND_TOPMOST, IDC_ARROW, IsWindowVisible, LoadCursorW,
-                PBT_APMPOWERSTATUSCHANGE, RegisterClassW, SW_HIDE, SW_SHOW, SWP_NOACTIVATE,
-                SetForegroundWindow, SetWindowPos, ShowWindow, WA_INACTIVE, WM_ACTIVATE,
-                WM_DESTROY, WM_ERASEBKGND, WM_KEYDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_PAINT,
-                WM_POWERBROADCAST, WNDCLASSW, WS_CLIPCHILDREN, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
-                WS_POPUP,
+                CS_DROPSHADOW, CreateWindowExW, DefWindowProcW, GetClientRect, HWND_TOPMOST,
+                IDC_ARROW, IsWindowVisible, LoadCursorW, PBT_APMPOWERSTATUSCHANGE, PostMessageW,
+                RegisterClassW, SW_HIDE, SW_SHOWNA, SWP_NOACTIVATE, SetWindowPos, ShowWindow,
+                WA_INACTIVE, WM_ACTIVATE, WM_APP, WM_DESTROY, WM_ERASEBKGND, WM_KEYDOWN,
+                WM_LBUTTONUP, WM_MOUSEMOVE, WM_PAINT, WM_POWERBROADCAST, WNDCLASSW,
+                WS_CLIPCHILDREN, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
             },
         },
     },
-    core::{BOOL, w},
+    core::w,
 };
 
-use crate::strings;
+use crate::{panel_theme::Palette, strings};
 
 /// A click that closes the panel by deactivating it is followed by the
 /// battery icon's own click. Ignore a reopen that close just caused.
 const REOPEN_GUARD: Duration = Duration::from_millis(250);
 const SETTINGS: &str = "ms-settings:batterysaver";
+/// Posted on `WA_INACTIVE`; the panel closes only if it really lost the
+/// foreground once activation has settled.
+const CHECK_FOREGROUND: u32 = WM_APP + 41;
 
 thread_local! {
     static PANEL: RefCell<Option<Panel>> = const { RefCell::new(None) };
@@ -81,8 +70,7 @@ struct Panel {
     percent_font: HFONT,
     fill_brush: HBRUSH,
     select_brush: HBRUSH,
-    rim_brush: HBRUSH,
-    light: bool,
+    palette: Palette,
     anchor: POINT,
     lines: Lines,
     width: i32,
@@ -150,18 +138,24 @@ fn show(anchor: POINT) {
         let mut guard = slot.borrow_mut();
         let panel = guard.as_mut()?;
         panel.anchor = anchor;
-        panel.light = crate::appearance::current().light;
         panel.hot = false;
-        restyle(panel);
+        restyle(panel, Palette::current());
         panel.lines = lines(system::battery_menu().as_ref(), &words());
         place(panel);
         Some(panel.hwnd)
     }) else {
         return;
     };
+    // SW_SHOWNA: activation comes once, from `take_focus`, not twice.
     unsafe {
-        let _ = ShowWindow(hwnd, SW_SHOW);
-        take_focus(hwnd);
+        let _ = ShowWindow(hwnd, SW_SHOWNA);
+    }
+    crate::panel_theme::take_focus(hwnd, hwnd, "batería");
+}
+
+fn closes_on_deactivate(hwnd: HWND) {
+    if unsafe { IsWindowVisible(hwnd).as_bool() } && !crate::panel_theme::is_foreground(hwnd) {
+        hide(true);
     }
 }
 
@@ -229,8 +223,8 @@ fn create(anchor: POINT) -> Result<(), windows::core::Error> {
             None,
         )?
     };
-    let light = crate::appearance::current().light;
-    let brushes = brushes_for(light);
+    let palette = Palette::current();
+    let brushes = brushes_for(palette);
     let scale = scale_of(hwnd);
     let mut panel = Panel {
         hwnd,
@@ -238,8 +232,7 @@ fn create(anchor: POINT) -> Result<(), windows::core::Error> {
         percent_font: font_for(scale, 22.0),
         fill_brush: brushes.fill,
         select_brush: brushes.select,
-        rim_brush: brushes.rim,
-        light,
+        palette,
         anchor,
         lines: lines(None, &words()),
         width: 10,
@@ -250,7 +243,7 @@ fn create(anchor: POINT) -> Result<(), windows::core::Error> {
         link_height: 1,
         hot: false,
     };
-    glass(&panel);
+    crate::panel_theme::style_window(hwnd, palette);
     place(&mut panel);
     PANEL.with(|slot| *slot.borrow_mut() = Some(panel));
     Ok(())
@@ -259,20 +252,13 @@ fn create(anchor: POINT) -> Result<(), windows::core::Error> {
 struct Brushes {
     fill: HBRUSH,
     select: HBRUSH,
-    rim: HBRUSH,
 }
 
-fn brushes_for(light: bool) -> Brushes {
-    let (fill, select, rim) = if light {
-        (rgb(246, 246, 248), rgb(226, 236, 250), rgb(255, 255, 255))
-    } else {
-        (rgb(28, 28, 30), rgb(52, 56, 64), rgb(255, 255, 255))
-    };
+fn brushes_for(palette: Palette) -> Brushes {
     unsafe {
         Brushes {
-            fill: CreateSolidBrush(fill),
-            select: CreateSolidBrush(select),
-            rim: CreateSolidBrush(rim),
+            fill: CreateSolidBrush(palette.fill),
+            select: CreateSolidBrush(palette.select),
         }
     }
 }
@@ -299,70 +285,29 @@ fn font_for(scale: f32, points: f32) -> HFONT {
     }
 }
 
-fn restyle(panel: &mut Panel) {
-    let light = panel.light;
-    let brushes = brushes_for(light);
+/// Fonts follow the monitor scale and colours the app theme, both read again
+/// on every open.
+fn restyle(panel: &mut Panel, palette: Palette) {
     let scale = scale_of(panel.hwnd);
-    let previous = (
-        panel.fill_brush,
-        panel.select_brush,
-        panel.rim_brush,
-        panel.font,
-        panel.percent_font,
-    );
+    let previous = (panel.font, panel.percent_font);
     panel.font = font_for(scale, 13.0);
     panel.percent_font = font_for(scale, 22.0);
-    panel.fill_brush = brushes.fill;
-    panel.select_brush = brushes.select;
-    panel.rim_brush = brushes.rim;
     unsafe {
         let _ = DeleteObject(previous.0.into());
         let _ = DeleteObject(previous.1.into());
-        let _ = DeleteObject(previous.2.into());
-        let _ = DeleteObject(previous.3.into());
-        let _ = DeleteObject(previous.4.into());
     }
-    glass(panel);
-}
-
-fn glass(panel: &Panel) {
-    let backdrop = DWMSBT_TRANSIENTWINDOW.0;
-    let corner = DWMWCP_ROUND.0;
-    let dark = BOOL::from(!panel.light);
-    let host = BOOL::from(true);
-    let margins = MARGINS {
-        cxLeftWidth: -1,
-        cxRightWidth: -1,
-        cyTopHeight: -1,
-        cyBottomHeight: -1,
-    };
-    unsafe {
-        let _ = DwmSetWindowAttribute(
-            panel.hwnd,
-            DWMWA_SYSTEMBACKDROP_TYPE,
-            (&raw const backdrop).cast(),
-            size_of::<i32>() as u32,
-        );
-        let _ = DwmSetWindowAttribute(
-            panel.hwnd,
-            DWMWA_WINDOW_CORNER_PREFERENCE,
-            (&raw const corner).cast(),
-            size_of::<i32>() as u32,
-        );
-        let _ = DwmSetWindowAttribute(
-            panel.hwnd,
-            DWMWA_USE_IMMERSIVE_DARK_MODE,
-            (&raw const dark).cast(),
-            size_of::<BOOL>() as u32,
-        );
-        let _ = DwmSetWindowAttribute(
-            panel.hwnd,
-            DWMWA_USE_HOSTBACKDROPBRUSH,
-            (&raw const host).cast(),
-            size_of::<BOOL>() as u32,
-        );
-        let _ = DwmExtendFrameIntoClientArea(panel.hwnd, &raw const margins);
+    if palette != panel.palette {
+        let brushes = brushes_for(palette);
+        let previous = (panel.fill_brush, panel.select_brush);
+        panel.fill_brush = brushes.fill;
+        panel.select_brush = brushes.select;
+        panel.palette = palette;
+        unsafe {
+            let _ = DeleteObject(previous.0.into());
+            let _ = DeleteObject(previous.1.into());
+        }
     }
+    crate::panel_theme::style_window(panel.hwnd, panel.palette);
 }
 
 fn place(panel: &mut Panel) {
@@ -408,23 +353,6 @@ fn place(panel: &mut Panel) {
     }
 }
 
-fn take_focus(hwnd: HWND) {
-    unsafe {
-        let foreground = GetForegroundWindow();
-        let fore_thread = GetWindowThreadProcessId(foreground, None);
-        let our_thread = GetCurrentThreadId();
-        let attached = fore_thread != 0 && fore_thread != our_thread;
-        if attached {
-            let _ = AttachThreadInput(fore_thread, our_thread, true);
-        }
-        let _ = SetForegroundWindow(hwnd);
-        let _ = SetFocus(Some(hwnd));
-        if attached {
-            let _ = AttachThreadInput(fore_thread, our_thread, false);
-        }
-    }
-}
-
 fn open_settings() {
     if launcher::open(SETTINGS).is_ok() {
         hide(false);
@@ -438,10 +366,6 @@ fn scale_of(hwnd: HWND) -> f32 {
 
 fn px(scale: f32, value: f32) -> i32 {
     (value * scale).round() as i32
-}
-
-fn rgb(red: u8, green: u8, blue: u8) -> COLORREF {
-    COLORREF(u32::from(red) | (u32::from(green) << 8) | (u32::from(blue) << 16))
 }
 
 fn hi_word(lparam: LPARAM) -> i32 {
@@ -512,8 +436,16 @@ unsafe extern "system" fn panel_proc(
         }
         WM_ACTIVATE => {
             if (wparam.0 as u32 & 0xffff) == WA_INACTIVE {
-                hide(true);
+                // Activation can bounce while the panel opens; decide once
+                // the message queue has settled.
+                unsafe {
+                    let _ = PostMessageW(Some(hwnd), CHECK_FOREGROUND, WPARAM(0), LPARAM(0));
+                }
             }
+            LRESULT(0)
+        }
+        CHECK_FOREGROUND => {
+            closes_on_deactivate(hwnd);
             LRESULT(0)
         }
         WM_DESTROY => {
@@ -537,12 +469,8 @@ fn paint(panel: &Panel) {
     let mut client = RECT::default();
     unsafe {
         let _ = GetClientRect(panel.hwnd, &mut client);
-        if !system::is_windows_11() || !system::transparency_enabled() {
-            FillRect(hdc, &client, panel.fill_brush);
-        }
-        FrameRect(hdc, &client, panel.rim_brush);
+        FillRect(hdc, &client, panel.fill_brush);
         let _ = SetBkMode(hdc, TRANSPARENT);
-        let _ = SetTextColor(hdc, text_color(panel.light));
         draw_lines(hdc, panel);
         let _ = EndPaint(panel.hwnd, &info);
     }
@@ -552,6 +480,7 @@ fn draw_lines(hdc: HDC, panel: &Panel) {
     let pad = panel.pad;
     let mut top = pad;
     unsafe {
+        let _ = SetTextColor(hdc, panel.palette.text);
         if let Some(percent) = &panel.lines.percent {
             let mut row = line_rect(panel, top, panel.percent_h, pad);
             let previous = SelectObject(hdc, panel.percent_font.into());
@@ -561,7 +490,14 @@ fn draw_lines(hdc: HDC, panel: &Panel) {
         }
         let previous = SelectObject(hdc, panel.font.into());
         let row_h = panel.row_h;
-        for row_text in &panel.lines.rows {
+        for (index, row_text) in panel.lines.rows.iter().enumerate() {
+            // The charge state reads first; the details are secondary.
+            let color = if index == 0 {
+                panel.palette.text
+            } else {
+                panel.palette.secondary
+            };
+            let _ = SetTextColor(hdc, color);
             let mut row = line_rect(panel, top, row_h, pad);
             draw_text(hdc, row_text, &mut row);
             top += row_h;
@@ -575,6 +511,7 @@ fn draw_lines(hdc: HDC, panel: &Panel) {
             };
             FillRect(hdc, &row, panel.select_brush);
         }
+        let _ = SetTextColor(hdc, panel.palette.link);
         let mut link = line_rect(panel, panel.link_top, panel.link_height, pad);
         draw_text(hdc, &panel.lines.link, &mut link);
         let _ = SelectObject(hdc, previous);
@@ -587,14 +524,6 @@ fn line_rect(panel: &Panel, top: i32, height: i32, pad: i32) -> RECT {
         top,
         right: panel.width - pad,
         bottom: top + height,
-    }
-}
-
-fn text_color(light: bool) -> COLORREF {
-    if light {
-        rgb(28, 28, 30)
-    } else {
-        rgb(245, 245, 247)
     }
 }
 
@@ -617,7 +546,6 @@ fn drop_panel(panel: Panel) {
     unsafe {
         let _ = DeleteObject(panel.fill_brush.into());
         let _ = DeleteObject(panel.select_brush.into());
-        let _ = DeleteObject(panel.rim_brush.into());
         let _ = DeleteObject(panel.font.into());
         let _ = DeleteObject(panel.percent_font.into());
     }

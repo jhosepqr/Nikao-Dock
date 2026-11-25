@@ -1,5 +1,5 @@
 //! Menu-bar search. The Windows Search flyout always opens at the bottom of
-//! the screen, so the magnifier opens this panel instead: a small glass card
+//! the screen, so the magnifier opens this panel instead: a small card
 //! under the bar, over Start-menu shortcuts and a few Settings pages.
 //!
 //! Nothing here runs while the panel is closed. There is no timer and no
@@ -10,7 +10,6 @@
 use std::{
     cell::{Cell, RefCell},
     fs,
-    mem::size_of,
     path::Path,
     sync::atomic::{AtomicIsize, Ordering},
     time::{Duration, Instant},
@@ -20,27 +19,16 @@ use muelle_config::{Language, SearchMode};
 use muelle_shell::{launcher, system};
 use windows::{
     Win32::{
-        Foundation::{COLORREF, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM},
-        Graphics::{
-            Dwm::{
-                DWMSBT_TRANSIENTWINDOW, DWMWA_SYSTEMBACKDROP_TYPE, DWMWA_USE_HOSTBACKDROPBRUSH,
-                DWMWA_USE_IMMERSIVE_DARK_MODE, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND,
-                DwmExtendFrameIntoClientArea, DwmSetWindowAttribute,
-            },
-            Gdi::{
-                BeginPaint, CLIP_DEFAULT_PRECIS, CreateFontW, CreateSolidBrush, DT_END_ELLIPSIS,
-                DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, DeleteObject, DrawTextW, EndPaint,
-                FillRect, FrameRect, HBRUSH, HDC, HFONT, InvalidateRect, OUT_DEFAULT_PRECIS,
-                PAINTSTRUCT, SelectObject, SetBkMode, SetTextColor, TRANSPARENT,
-            },
+        Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM},
+        Graphics::Gdi::{
+            BeginPaint, CLIP_DEFAULT_PRECIS, CreateFontW, CreateSolidBrush, DT_END_ELLIPSIS,
+            DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, DeleteObject, DrawTextW, EndPaint, FillRect,
+            FrameRect, HBRUSH, HDC, HFONT, InvalidateRect, OUT_DEFAULT_PRECIS, PAINTSTRUCT,
+            SelectObject, SetBkColor, SetBkMode, SetTextColor, TRANSPARENT,
         },
-        System::{
-            Com::CoTaskMemFree,
-            LibraryLoader::GetModuleHandleW,
-            Threading::{AttachThreadInput, GetCurrentThreadId},
-        },
+        System::{Com::CoTaskMemFree, LibraryLoader::GetModuleHandleW},
         UI::{
-            Controls::{MARGINS, SetWindowTheme},
+            Controls::SetWindowTheme,
             HiDpi::GetDpiForWindow,
             Input::KeyboardAndMouse::{
                 SetFocus, VIRTUAL_KEY, VK_DOWN, VK_ESCAPE, VK_RETURN, VK_UP,
@@ -50,21 +38,21 @@ use windows::{
             },
             WindowsAndMessaging::{
                 CS_DROPSHADOW, CallWindowProcW, CreateWindowExW, DefWindowProcW, DestroyWindow,
-                ES_AUTOHSCROLL, GWLP_WNDPROC, GetClientRect, GetForegroundWindow, GetWindowTextW,
-                GetWindowThreadProcessId, HWND_TOPMOST, IDC_ARROW, IsWindowVisible, LoadCursorW,
-                RegisterClassW, SW_HIDE, SW_SHOW, SWP_NOACTIVATE, SendMessageW,
-                SetForegroundWindow, SetWindowLongPtrW, SetWindowPos, SetWindowTextW, ShowWindow,
-                WA_INACTIVE, WINDOW_EX_STYLE, WINDOW_STYLE, WM_ACTIVATE, WM_COMMAND,
-                WM_CTLCOLOREDIT, WM_DESTROY, WM_ERASEBKGND, WM_KEYDOWN, WM_LBUTTONUP, WM_MOUSEMOVE,
-                WM_PAINT, WM_SETFOCUS, WM_SETFONT, WNDCLASSW, WNDPROC, WS_CHILD, WS_CLIPCHILDREN,
-                WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP, WS_TABSTOP, WS_VISIBLE,
+                ES_AUTOHSCROLL, GWLP_WNDPROC, GetClientRect, GetWindowTextW, HWND_TOPMOST,
+                IDC_ARROW, IsWindowVisible, LoadCursorW, PostMessageW, RegisterClassW, SW_HIDE,
+                SW_SHOWNA, SWP_NOACTIVATE, SendMessageW, SetWindowLongPtrW, SetWindowPos,
+                SetWindowTextW, ShowWindow, WA_INACTIVE, WINDOW_EX_STYLE, WINDOW_STYLE,
+                WM_ACTIVATE, WM_APP, WM_COMMAND, WM_CTLCOLOREDIT, WM_DESTROY, WM_ERASEBKGND,
+                WM_KEYDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_PAINT, WM_SETFOCUS, WM_SETFONT,
+                WNDCLASSW, WNDPROC, WS_CHILD, WS_CLIPCHILDREN, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
+                WS_POPUP, WS_TABSTOP, WS_VISIBLE,
             },
         },
     },
-    core::{BOOL, HSTRING, w},
+    core::{HSTRING, w},
 };
 
-use crate::strings;
+use crate::{panel_theme::Palette, strings};
 
 const MAX_SHORTCUTS: usize = 4_000;
 const MAX_DEPTH: u8 = 6;
@@ -74,6 +62,9 @@ const EM_SETCUEBANNER: u32 = 5377;
 /// A click that closes the panel by deactivating it is followed by the
 /// magnifier's own click. Ignore a reopen that close just caused.
 const REOPEN_GUARD: Duration = Duration::from_millis(250);
+/// Posted on `WA_INACTIVE`; the panel closes only if it really lost the
+/// foreground once activation has settled.
+const CHECK_FOREGROUND: u32 = WM_APP + 42;
 
 static MODE: AtomicIsize = AtomicIsize::new(0);
 static EDIT_PROC: AtomicIsize = AtomicIsize::new(0);
@@ -113,10 +104,12 @@ struct Panel {
     edit_brush: HBRUSH,
     fill_brush: HBRUSH,
     select_brush: HBRUSH,
-    rim_brush: HBRUSH,
-    light: bool,
+    border_brush: HBRUSH,
+    palette: Palette,
     scale: f32,
     anchor: POINT,
+    /// The search field around the edit control, in client pixels.
+    field: RECT,
     width: i32,
     row_top: i32,
     row_height: i32,
@@ -187,7 +180,7 @@ fn show(anchor: POINT) {
         panel.hits.clear();
         panel.selected = None;
         panel.notice = None;
-        apply_material(panel);
+        apply_material(panel, Palette::current());
         place(panel, anchor, 0);
         Some((panel.hwnd, panel.edit))
     }) else {
@@ -202,8 +195,15 @@ fn show(anchor: POINT) {
             Some(WPARAM(1)),
             Some(LPARAM(cue.as_ptr() as isize)),
         );
-        let _ = ShowWindow(hwnd, SW_SHOW);
-        take_focus(hwnd, edit);
+        // SW_SHOWNA: activation comes once, from `take_focus`, not twice.
+        let _ = ShowWindow(hwnd, SW_SHOWNA);
+    }
+    crate::panel_theme::take_focus(hwnd, edit, "buscador");
+}
+
+fn closes_on_deactivate(hwnd: HWND) {
+    if unsafe { IsWindowVisible(hwnd).as_bool() } && !crate::panel_theme::is_foreground(hwnd) {
+        hide(true);
     }
 }
 
@@ -285,8 +285,8 @@ fn create(anchor: POINT) -> Result<(), windows::core::Error> {
             SetWindowLongPtrW(edit, GWLP_WNDPROC, edit_proc as *const () as usize as isize);
         EDIT_PROC.store(previous, Ordering::Relaxed);
     }
-    let light = crate::appearance::current().light;
-    let brushes = brushes_for(light);
+    let palette = Palette::current();
+    let brushes = brushes_for(palette);
     let font = font_for(scale_of(hwnd));
     unsafe {
         let _ = SendMessageW(
@@ -303,10 +303,11 @@ fn create(anchor: POINT) -> Result<(), windows::core::Error> {
         edit_brush: brushes.edit,
         fill_brush: brushes.fill,
         select_brush: brushes.select,
-        rim_brush: brushes.rim,
-        light,
+        border_brush: brushes.border,
+        palette,
         scale: scale_of(hwnd),
         anchor,
+        field: RECT::default(),
         width: 10,
         row_top: 0,
         row_height: 1,
@@ -315,7 +316,7 @@ fn create(anchor: POINT) -> Result<(), windows::core::Error> {
         selected: None,
         notice: None,
     };
-    glass(&panel);
+    crate::panel_theme::style_window(hwnd, palette);
     place(&mut panel, anchor, 0);
     PANEL.with(|slot| *slot.borrow_mut() = Some(panel));
     Ok(())
@@ -325,31 +326,16 @@ struct Brushes {
     edit: HBRUSH,
     fill: HBRUSH,
     select: HBRUSH,
-    rim: HBRUSH,
+    border: HBRUSH,
 }
 
-fn brushes_for(light: bool) -> Brushes {
-    let (edit, fill, select, rim) = if light {
-        (
-            rgb(255, 255, 255),
-            rgb(246, 246, 248),
-            rgb(226, 236, 250),
-            rgb(255, 255, 255),
-        )
-    } else {
-        (
-            rgb(36, 36, 40),
-            rgb(28, 28, 30),
-            rgb(52, 56, 64),
-            rgb(255, 255, 255),
-        )
-    };
+fn brushes_for(palette: Palette) -> Brushes {
     unsafe {
         Brushes {
-            edit: CreateSolidBrush(edit),
-            fill: CreateSolidBrush(fill),
-            select: CreateSolidBrush(select),
-            rim: CreateSolidBrush(rim),
+            edit: CreateSolidBrush(palette.edit),
+            fill: CreateSolidBrush(palette.fill),
+            select: CreateSolidBrush(palette.select),
+            border: CreateSolidBrush(palette.border),
         }
     }
 }
@@ -376,81 +362,40 @@ fn font_for(scale: f32) -> HFONT {
     }
 }
 
-fn apply_material(panel: &mut Panel) {
-    let light = crate::appearance::current().light;
-    if light == panel.light {
-        glass(panel);
-        return;
+/// Colours follow the Windows app theme, read again on every open.
+fn apply_material(panel: &mut Panel, palette: Palette) {
+    if palette != panel.palette {
+        let previous = (
+            panel.edit_brush,
+            panel.fill_brush,
+            panel.select_brush,
+            panel.border_brush,
+        );
+        let brushes = brushes_for(palette);
+        panel.edit_brush = brushes.edit;
+        panel.fill_brush = brushes.fill;
+        panel.select_brush = brushes.select;
+        panel.border_brush = brushes.border;
+        panel.palette = palette;
+        unsafe {
+            let _ = DeleteObject(previous.0.into());
+            let _ = DeleteObject(previous.1.into());
+            let _ = DeleteObject(previous.2.into());
+            let _ = DeleteObject(previous.3.into());
+        }
     }
-    let previous = (
-        panel.edit_brush,
-        panel.fill_brush,
-        panel.select_brush,
-        panel.rim_brush,
-        panel.font,
-    );
-    let brushes = brushes_for(light);
-    panel.scale = scale_of(panel.hwnd);
-    panel.font = font_for(panel.scale);
-    panel.edit_brush = brushes.edit;
-    panel.fill_brush = brushes.fill;
-    panel.select_brush = brushes.select;
-    panel.rim_brush = brushes.rim;
-    panel.light = light;
+    let previous = panel.font;
+    panel.font = font_for(scale_of(panel.hwnd));
     unsafe {
         let _ = SendMessageW(
             panel.edit,
             WM_SETFONT,
             Some(WPARAM(panel.font.0 as usize)),
-            Some(LPARAM(1)),
+            Some(LPARAM(0)),
         );
-        let _ = DeleteObject(previous.0.into());
-        let _ = DeleteObject(previous.1.into());
-        let _ = DeleteObject(previous.2.into());
-        let _ = DeleteObject(previous.3.into());
-        let _ = DeleteObject(previous.4.into());
+        let _ = DeleteObject(previous.into());
     }
-    glass(panel);
-}
-
-fn glass(panel: &Panel) {
-    let backdrop = DWMSBT_TRANSIENTWINDOW.0;
-    let corner = DWMWCP_ROUND.0;
-    let dark = BOOL::from(!panel.light);
-    let host = BOOL::from(true);
-    let margins = MARGINS {
-        cxLeftWidth: -1,
-        cxRightWidth: -1,
-        cyTopHeight: -1,
-        cyBottomHeight: -1,
-    };
-    unsafe {
-        let _ = DwmSetWindowAttribute(
-            panel.hwnd,
-            DWMWA_SYSTEMBACKDROP_TYPE,
-            (&raw const backdrop).cast(),
-            size_of::<i32>() as u32,
-        );
-        let _ = DwmSetWindowAttribute(
-            panel.hwnd,
-            DWMWA_WINDOW_CORNER_PREFERENCE,
-            (&raw const corner).cast(),
-            size_of::<i32>() as u32,
-        );
-        let _ = DwmSetWindowAttribute(
-            panel.hwnd,
-            DWMWA_USE_IMMERSIVE_DARK_MODE,
-            (&raw const dark).cast(),
-            size_of::<BOOL>() as u32,
-        );
-        let _ = DwmSetWindowAttribute(
-            panel.hwnd,
-            DWMWA_USE_HOSTBACKDROPBRUSH,
-            (&raw const host).cast(),
-            size_of::<BOOL>() as u32,
-        );
-        let _ = DwmExtendFrameIntoClientArea(panel.hwnd, &raw const margins);
-    }
+    crate::panel_theme::style_window(panel.hwnd, panel.palette);
 }
 
 fn place(panel: &mut Panel, anchor: POINT, rows: usize) {
@@ -489,16 +434,26 @@ fn place(panel: &mut Panel, anchor: POINT, rows: usize) {
             height,
             SWP_NOACTIVATE,
         );
+        // A single-line EDIT does not centre its text vertically, so the
+        // control is only one line tall and sits centred inside the field.
+        let inset = px(scale, 10.0);
+        let line = px(scale, 22.0).min(edit_height);
         let _ = SetWindowPos(
             panel.edit,
             None,
-            pad,
-            pad,
-            (width - pad * 2).max(1),
-            edit_height,
+            pad + inset,
+            pad + (edit_height - line) / 2,
+            (width - pad * 2 - inset * 2).max(1),
+            line,
             SWP_NOACTIVATE,
         );
     }
+    panel.field = RECT {
+        left: pad,
+        top: pad,
+        right: width - pad,
+        bottom: pad + edit_height,
+    };
 }
 
 fn refilter() {
@@ -602,23 +557,6 @@ fn window_text(hwnd: HWND) -> String {
     String::from_utf16_lossy(&buffer[..length])
 }
 
-fn take_focus(hwnd: HWND, edit: HWND) {
-    unsafe {
-        let foreground = GetForegroundWindow();
-        let fore_thread = GetWindowThreadProcessId(foreground, None);
-        let our_thread = GetCurrentThreadId();
-        if fore_thread != 0 && fore_thread != our_thread {
-            let _ = AttachThreadInput(fore_thread, our_thread, true);
-            let _ = SetForegroundWindow(hwnd);
-            let _ = SetFocus(Some(edit));
-            let _ = AttachThreadInput(fore_thread, our_thread, false);
-        } else {
-            let _ = SetForegroundWindow(hwnd);
-            let _ = SetFocus(Some(edit));
-        }
-    }
-}
-
 fn scale_of(hwnd: HWND) -> f32 {
     let dpi = unsafe { GetDpiForWindow(hwnd) };
     if dpi == 0 { 1.0 } else { dpi as f32 / 96.0 }
@@ -626,10 +564,6 @@ fn scale_of(hwnd: HWND) -> f32 {
 
 fn px(scale: f32, value: f32) -> i32 {
     (value * scale).round() as i32
-}
-
-fn rgb(red: u8, green: u8, blue: u8) -> COLORREF {
-    COLORREF(u32::from(red) | (u32::from(green) << 8) | (u32::from(blue) << 16))
 }
 
 unsafe extern "system" fn panel_proc(
@@ -652,14 +586,11 @@ unsafe extern "system" fn panel_proc(
             let hdc = HDC(wparam.0 as *mut core::ffi::c_void);
             let brush = PANEL.with(|slot| {
                 slot.borrow().as_ref().map(|panel| {
-                    let color = if panel.light {
-                        rgb(28, 28, 30)
-                    } else {
-                        rgb(245, 245, 247)
-                    };
+                    // Opaque text background: a transparent one leaves stale
+                    // glyphs behind when the EDIT scrolls or deletes.
                     unsafe {
-                        let _ = SetTextColor(hdc, color);
-                        let _ = SetBkMode(hdc, TRANSPARENT);
+                        let _ = SetTextColor(hdc, panel.palette.text);
+                        let _ = SetBkColor(hdc, panel.palette.edit);
                     }
                     panel.edit_brush
                 })
@@ -701,8 +632,16 @@ unsafe extern "system" fn panel_proc(
         }
         WM_ACTIVATE => {
             if (wparam.0 as u32 & 0xffff) == WA_INACTIVE {
-                hide(true);
+                // Activation can bounce while the panel opens; decide once
+                // the message queue has settled.
+                unsafe {
+                    let _ = PostMessageW(Some(hwnd), CHECK_FOREGROUND, WPARAM(0), LPARAM(0));
+                }
             }
+            LRESULT(0)
+        }
+        CHECK_FOREGROUND => {
+            closes_on_deactivate(hwnd);
             LRESULT(0)
         }
         WM_DESTROY => {
@@ -770,10 +709,9 @@ fn paint(panel: &Panel) {
     let mut client = RECT::default();
     unsafe {
         let _ = GetClientRect(panel.hwnd, &mut client);
-        if !system::is_windows_11() || !system::transparency_enabled() {
-            FillRect(hdc, &client, panel.fill_brush);
-        }
-        FrameRect(hdc, &client, panel.rim_brush);
+        FillRect(hdc, &client, panel.fill_brush);
+        FillRect(hdc, &panel.field, panel.edit_brush);
+        FrameRect(hdc, &panel.field, panel.border_brush);
         let previous = SelectObject(hdc, panel.font.into());
         let _ = SetBkMode(hdc, TRANSPARENT);
         if let Some(notice) = panel.notice {
@@ -818,11 +756,9 @@ fn draw_line(
             FillRect(hdc, &row, panel.select_brush);
         }
         let color = if dim {
-            rgb(120, 120, 128)
-        } else if panel.light {
-            rgb(28, 28, 30)
+            panel.palette.secondary
         } else {
-            rgb(245, 245, 247)
+            panel.palette.text
         };
         let _ = SetTextColor(hdc, color);
         let mut name = row;
@@ -834,7 +770,7 @@ fn draw_line(
         };
         draw_text(hdc, label, &mut name);
         if !detail.is_empty() {
-            let _ = SetTextColor(hdc, rgb(120, 120, 128));
+            let _ = SetTextColor(hdc, panel.palette.secondary);
             let mut side = row;
             side.left = name.right;
             side.right = panel.width - pad;
@@ -863,7 +799,7 @@ fn drop_panel(panel: Panel) {
         let _ = DeleteObject(panel.edit_brush.into());
         let _ = DeleteObject(panel.fill_brush.into());
         let _ = DeleteObject(panel.select_brush.into());
-        let _ = DeleteObject(panel.rim_brush.into());
+        let _ = DeleteObject(panel.border_brush.into());
         let _ = DeleteObject(panel.font.into());
     }
 }

@@ -38,6 +38,14 @@ pub fn uses_light_theme() -> bool {
     personalize(w!("SystemUsesLightTheme")).is_some_and(|value| value != 0)
 }
 
+/// Returns `true` if Windows draws apps light ("Choose your app mode").
+///
+/// Assumes light on read failure, the Windows default for apps.
+#[must_use]
+pub fn apps_use_light_theme() -> bool {
+    personalize(w!("AppsUseLightTheme")).is_none_or(|value| value != 0)
+}
+
 /// Returns `true` while the host backdrop brush is available: Windows 11,
 /// "Transparency effects" on, and energy saver off (it turns the effect off).
 /// Otherwise the backdrop stops blurring and shows up black, so surfaces that
