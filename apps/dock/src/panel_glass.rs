@@ -8,7 +8,9 @@ use anyhow::Result;
 use windows::{
     UI::{
         Color,
-        Composition::{CompositionColorSpace, Desktop::DesktopWindowTarget, VisualCollection},
+        Composition::{
+            CompositionBrush, CompositionColorSpace, Desktop::DesktopWindowTarget, VisualCollection,
+        },
     },
     Win32::{Foundation::HWND, System::WinRT::Composition::ICompositorDesktopInterop},
     core::Interface,
@@ -16,15 +18,31 @@ use windows::{
 use windows_numerics::{Vector2, Vector3};
 
 use crate::{
-    gfx::{Gfx, TextStyle},
+    gfx::{Gfx, Ink, TextStyle},
     menu,
     panel_theme::{GlassTokens, Rgba},
 };
 
 /// Corner radius of Liquid Glass drop-down cards (logical pixels).
 const CARD_RADIUS: f32 = 16.0;
-/// Where the static top specular highlight fades out (fraction of card height).
-const SHEEN_END: f32 = 0.18;
+pub(crate) const RIM_COLORS: [(u8, u8, u8); 4] = [
+    (221, 249, 255),
+    (199, 233, 248),
+    (247, 213, 229),
+    (255, 233, 241),
+];
+
+/// Opposite reflections with a clear center, shared by the dock and panels.
+pub(crate) const fn gloss_stops(alpha: u8) -> [(f32, Color); 6] {
+    [
+        (0.0, ui_color(Rgba::rgb(245, 253, 255, alpha))),
+        (0.16, ui_color(Rgba::rgb(186, 237, 255, alpha / 2))),
+        (0.45, ui_color(Rgba::rgb(186, 237, 255, 0))),
+        (0.73, ui_color(Rgba::rgb(255, 202, 215, 0))),
+        (0.94, ui_color(Rgba::rgb(255, 202, 215, alpha / 2))),
+        (1.0, ui_color(Rgba::rgb(255, 243, 247, alpha - alpha / 4))),
+    ]
+}
 
 /// The composition target for one open panel. Dropping it releases the tree.
 #[derive(Clone)]
@@ -112,7 +130,7 @@ impl Scene {
             canvas.height,
         )?;
         if canvas.tokens.glass && canvas.tokens.sheen.a > 0 {
-            draw_specular_sheen(&layers, canvas.tokens.sheen, canvas.width, canvas.height)?;
+            draw_specular_sheen(&layers, canvas.tokens.sheen.a, canvas.width, canvas.height)?;
         }
         let surface = Surface {
             gfx,
@@ -189,23 +207,45 @@ impl Surface<'_> {
         self.gfx.text_width(text, self.canvas.scale, font, bold)
     }
 
-    pub fn fill(&self, color: Rgba, round: Round) -> Result<()> {
-        if round.w < 1.0 || round.h < 1.0 {
-            return Ok(());
+    /// Built-in Windows icon font, aligned to the same rows as text.
+    pub fn glyph(&self, glyph: char, x: f32, top: f32, height: f32) -> Result<()> {
+        let ink = if self.canvas.tokens.light {
+            Ink::Dark
+        } else {
+            Ink::Light
+        };
+        let icon = self
+            .gfx
+            .glyph_brush(&[(glyph, 1.0)], self.canvas.scale, ink)?;
+        menu::add_sprite(
+            self.layers,
+            icon.brush.cast()?,
+            x,
+            top + ((height - icon.height) / 2.0).round(),
+            icon.width,
+            icon.height,
+        )
+    }
+
+    pub fn control(&self, fill: Rgba, border: Rgba, round: Round) -> Result<()> {
+        let thickness = self.canvas.scale.round().max(1.0);
+        if self.canvas.tokens.glass {
+            draw_gloss_control(self.layers, fill, round, thickness)
+        } else {
+            self.fill(fill, round)?;
+            self.stroke(border, round, thickness)
         }
+    }
+
+    pub fn fill(&self, color: Rgba, round: Round) -> Result<()> {
         let compositor = &self.gfx.compositor;
-        let geometry = compositor.CreateRoundedRectangleGeometry()?;
-        geometry.SetSize(Vector2::new(round.w, round.h))?;
-        let radius = round.radius.min(round.w / 2.0).min(round.h / 2.0).max(0.0);
-        geometry.SetCornerRadius(Vector2::new(radius, radius))?;
-        let shape = compositor.CreateSpriteShapeWithGeometry(&geometry)?;
-        shape.SetFillBrush(&compositor.CreateColorBrushWithColor(ui_color(color))?)?;
-        let visual = compositor.CreateShapeVisual()?;
-        visual.SetOffset(Vector3::new(round.x, round.y, 0.0))?;
-        visual.SetSize(Vector2::new(round.w, round.h))?;
-        visual.Shapes()?.Append(&shape)?;
-        self.layers.InsertAtTop(&visual)?;
-        Ok(())
+        draw_fill(
+            self.layers,
+            round,
+            &compositor
+                .CreateColorBrushWithColor(ui_color(color))?
+                .cast()?,
+        )
     }
 
     pub fn stroke(&self, color: Rgba, round: Round, thickness: f32) -> Result<()> {
@@ -230,29 +270,78 @@ impl Surface<'_> {
     }
 }
 
+fn draw_fill(layers: &VisualCollection, round: Round, brush: &CompositionBrush) -> Result<()> {
+    if round.w < 1.0 || round.h < 1.0 {
+        return Ok(());
+    }
+    let compositor = layers.Compositor()?;
+    let geometry = compositor.CreateRoundedRectangleGeometry()?;
+    geometry.SetSize(Vector2::new(round.w, round.h))?;
+    let radius = round.radius.min(round.w / 2.0).min(round.h / 2.0).max(0.0);
+    geometry.SetCornerRadius(Vector2::new(radius, radius))?;
+    let shape = compositor.CreateSpriteShapeWithGeometry(&geometry)?;
+    shape.SetFillBrush(brush)?;
+    let visual = compositor.CreateShapeVisual()?;
+    visual.SetOffset(Vector3::new(round.x, round.y, 0.0))?;
+    visual.SetSize(Vector2::new(round.w, round.h))?;
+    visual.Shapes()?.Append(&shape)?;
+    layers.InsertAtTop(&visual)?;
+    Ok(())
+}
+
+fn draw_gloss_control(
+    layers: &VisualCollection,
+    fill: Rgba,
+    round: Round,
+    stroke: f32,
+) -> Result<()> {
+    let compositor = layers.Compositor()?;
+    draw_fill(
+        layers,
+        round,
+        &compositor
+            .CreateColorBrushWithColor(ui_color(fill))?
+            .cast()?,
+    )?;
+    let highlight = compositor.CreateLinearGradientBrush()?;
+    highlight.SetStartPoint(Vector2::new(1.0, 0.0))?;
+    highlight.SetEndPoint(Vector2::new(0.0, 1.0))?;
+    let stops = highlight.ColorStops()?;
+    for (at, color) in gloss_stops(56) {
+        stops.Append(&compositor.CreateColorGradientStopWithOffsetAndColor(at, color)?)?;
+    }
+    draw_fill(layers, round, &highlight.cast()?)?;
+    draw_diagonal_rim(layers, [200, 65, 50, 168], round, stroke)
+}
+
+pub(crate) fn draw_status_button(
+    layers: &VisualCollection,
+    round: Round,
+    scale: f32,
+    light: bool,
+) -> Result<()> {
+    let fill = if light {
+        Rgba::rgb(255, 255, 255, 38)
+    } else {
+        Rgba::rgb(10, 12, 18, 80)
+    };
+    draw_gloss_control(layers, fill, round, scale.round().max(1.0))
+}
+
 fn draw_specular_sheen(
     layers: &VisualCollection,
-    sheen: Rgba,
+    alpha: u8,
     width: f32,
     height: f32,
 ) -> Result<()> {
     let compositor = layers.Compositor()?;
     let brush = compositor.CreateLinearGradientBrush()?;
-    brush.SetStartPoint(Vector2::new(0.0, 0.0))?;
+    brush.SetStartPoint(Vector2::new(1.0, 0.0))?;
     brush.SetEndPoint(Vector2::new(0.0, 1.0))?;
     let stops = brush.ColorStops()?;
-    stops.Append(&compositor.CreateColorGradientStopWithOffsetAndColor(0.0, ui_color(sheen))?)?;
-    stops.Append(&compositor.CreateColorGradientStopWithOffsetAndColor(
-        SHEEN_END * 0.3,
-        ui_color(Rgba {
-            a: sheen.a / 4,
-            ..sheen
-        }),
-    )?)?;
-    stops.Append(&compositor.CreateColorGradientStopWithOffsetAndColor(
-        SHEEN_END,
-        ui_color(Rgba { a: 0, ..sheen }),
-    )?)?;
+    for (at, color) in gloss_stops(alpha) {
+        stops.Append(&compositor.CreateColorGradientStopWithOffsetAndColor(at, color)?)?;
+    }
     menu::add_sprite(layers, brush.cast()?, 0.0, 0.0, width, height)
 }
 
@@ -267,18 +356,22 @@ fn draw_diagonal_rim(
     }
     let compositor = layers.Compositor()?;
     let brush = compositor.CreateLinearGradientBrush()?;
-    brush.SetStartPoint(Vector2::new(0.0, 0.0))?;
-    brush.SetEndPoint(Vector2::new(1.0, 1.0))?;
+    brush.SetStartPoint(Vector2::new(1.0, 0.0))?;
+    brush.SetEndPoint(Vector2::new(0.0, 1.0))?;
     brush.SetInterpolationSpace(CompositionColorSpace::RgbLinear)?;
     let stops = brush.ColorStops()?;
-    for (at, alpha) in [0.0, 0.35, 0.65, 1.0].into_iter().zip(rim_stops) {
+    for ((at, alpha), (r, g, b)) in [0.0, 0.35, 0.65, 1.0]
+        .into_iter()
+        .zip(rim_stops)
+        .zip(RIM_COLORS)
+    {
         stops.Append(&compositor.CreateColorGradientStopWithOffsetAndColor(
             at,
             Color {
                 A: alpha,
-                R: 255,
-                G: 255,
-                B: 255,
+                R: r,
+                G: g,
+                B: b,
             },
         )?)?;
     }
@@ -298,7 +391,7 @@ fn draw_diagonal_rim(
     Ok(())
 }
 
-fn ui_color(color: Rgba) -> Color {
+const fn ui_color(color: Rgba) -> Color {
     Color {
         A: color.a,
         R: color.r,

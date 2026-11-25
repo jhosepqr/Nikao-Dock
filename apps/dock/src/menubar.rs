@@ -157,6 +157,7 @@ pub(crate) mod glyph {
     pub const WIDGETS: char = '\u{F246}';
     /// The taskbar's "show hidden icons" arrow.
     pub const HIDDEN_ICONS: char = '\u{E70E}';
+    pub const POWER: char = '\u{E7E8}';
     pub const MICROPHONE: char = '\u{E720}';
     pub const CAMERA: char = '\u{E722}';
     pub const MOUSE: char = '\u{E962}';
@@ -176,6 +177,7 @@ enum Action {
     TaskView,
     Widgets,
     HiddenIcons,
+    Power,
     InputLanguage,
     Microphone,
     Camera,
@@ -1900,6 +1902,14 @@ impl MenuBar {
             Some(Action::Widgets) => launcher::open_widgets(),
             Some(Action::Bluetooth) => launcher::open_bluetooth(),
             Some(Action::HiddenIcons) => launcher::toggle_hidden_icons(anchor),
+            Some(Action::Power) => {
+                if let Err(error) =
+                    crate::shell_work::dispatch(crate::shell_work::Action::PowerOptions)
+                {
+                    muelle_shell::log::line(&format!("opciones de energía: {error:#}"));
+                    crate::shell_work::notify_not_started();
+                }
+            }
             Some(Action::InputLanguage) => {} // Opened outside the app borrow.
             // Windows' own pages list which apps use each device.
             Some(Action::Microphone) => {
@@ -2145,6 +2155,7 @@ impl MenuBar {
         let status = look.status;
         let symbol = |layers: &[(char, f32)]| gfx.glyph_brush(layers, scale, ink);
         let mut items: Vec<(LabelBrush, Action)> = vec![
+            (symbol(&[(glyph::POWER, 1.0)])?, Action::Power),
             (
                 gfx.text_brush(&look.clock, scale, false, ink)?,
                 Action::Notifications,
@@ -2241,8 +2252,29 @@ impl MenuBar {
                 place(&layers, label, right)?;
                 right -= px(6.0);
             }
-            let left = right - item.width;
-            place(&layers, item, left)?;
+            let circular = matches!(action, Action::Power | Action::HiddenIcons);
+            let width = if circular {
+                item.width.max(height)
+            } else {
+                item.width
+            };
+            let left = right - width;
+            if circular && look.glass {
+                let side = (height - px(4.0)).max(1.0);
+                crate::panel_glass::draw_status_button(
+                    &layers,
+                    crate::panel_glass::Round {
+                        x: left + (width - side) / 2.0,
+                        y: (height - side) / 2.0,
+                        w: side,
+                        h: side,
+                        radius: side / 2.0,
+                    },
+                    scale,
+                    look.light,
+                )?;
+            }
+            place(&layers, item, left + (width - item.width) / 2.0)?;
             // The battery icon and its percentage form one control.
             // Accessory readings are passive status indicators, not controls.
             if *action != Action::AccessoryIndicator {
@@ -4255,6 +4287,14 @@ mod island_tests {
             bar.zones
                 .iter()
                 .all(|(_, _, action)| *action != Action::Battery)
+        );
+        let power = bar.zones.first().context("power zone")?;
+        assert!(power.2 == Action::Power);
+        assert!(
+            bar.zones
+                .iter()
+                .skip(1)
+                .all(|(_, right, _)| *right <= power.0)
         );
 
         // The native registry handler reads the real Windows values without

@@ -134,7 +134,7 @@ jobs:
           }
           $url = "https://github.com/$env:GITHUB_REPOSITORY/releases/download/$env:GLASS_TAG/Nikao-Dock-Setup.exe"
           @(
-            'Instalador sin firmar de main. Vidrio es la única apariencia e incorpora reflejos en tonos fríos y rosados. El Efecto genio toma el tamaño visible de cada ventana al minimizar. Ajustes muestra la versión del fork.'
+            'Instalador sin firmar de main. Tarjeta de batería compacta, controles con reflejos Liquid Glass y botón de energía nativo. Ajustes en el inicio del Efecto genio y la apertura de iconos ocultos.'
             ''
             'No se actualiza solo al Muelle oficial de crafter-station. La próxima compilación se instala a mano. No incluye latest.json.'
             ''

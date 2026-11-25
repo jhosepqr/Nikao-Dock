@@ -24,11 +24,17 @@ use serde::{Deserialize, Serialize};
 use windows::Win32::{
     Foundation::{HANDLE, HWND, WAIT_TIMEOUT},
     System::{
-        Com::{COINIT_APARTMENTTHREADED, COINIT_DISABLE_OLE1DDE, CoInitializeEx, CoUninitialize},
+        Com::{
+            CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED, COINIT_DISABLE_OLE1DDE,
+            CoCreateInstance, CoInitializeEx, CoUninitialize,
+        },
         Diagnostics::Debug::{SEM_FAILCRITICALERRORS, SEM_NOOPENFILEERRORBOX, SetErrorMode},
         Threading::WaitForSingleObject,
     },
-    UI::WindowsAndMessaging::AllowSetForegroundWindow,
+    UI::{
+        Shell::{IShellDispatch, Shell},
+        WindowsAndMessaging::AllowSetForegroundWindow,
+    },
 };
 
 pub const FLAG: &str = "--shell-worker";
@@ -60,6 +66,7 @@ pub enum Action {
         copy: bool,
     },
     EmptyBin,
+    PowerOptions,
     Unpin {
         id: String,
     },
@@ -114,6 +121,16 @@ impl Action {
                 files::transfer(owner, &paths, &folder, copy)?;
             }
             Self::EmptyBin => recycle_bin::empty(owner),
+            Self::PowerOptions => {
+                launcher::allow_foreground();
+                // SAFETY: The helper has initialized COM. Explorer opens
+                // the native dialog, where the user chooses and confirms.
+                unsafe {
+                    let shell: IShellDispatch =
+                        CoCreateInstance(&Shell, None, CLSCTX_INPROC_SERVER)?;
+                    shell.ShutdownWindows()?;
+                }
+            }
             Self::Unpin { id } => {
                 let _ = unpin_from_taskbar(&id);
             }

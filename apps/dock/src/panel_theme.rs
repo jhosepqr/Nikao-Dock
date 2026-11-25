@@ -89,7 +89,7 @@ pub struct Rgba {
 }
 
 impl Rgba {
-    const fn rgb(r: u8, g: u8, b: u8, a: u8) -> Self {
+    pub(crate) const fn rgb(r: u8, g: u8, b: u8, a: u8) -> Self {
         Self { r, g, b, a }
     }
 

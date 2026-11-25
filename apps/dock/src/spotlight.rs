@@ -776,7 +776,6 @@ fn render(panel: &mut Panel) {
     };
     if let Err(error) = scene.paint(&panel.gfx, &canvas, |surface| {
         let tokens = surface.tokens();
-        let thickness = scale.round().max(1.0);
         let field_box = Round {
             x: field.left as f32,
             y: field.top as f32,
@@ -784,8 +783,7 @@ fn render(panel: &mut Panel) {
             h: (field.bottom - field.top) as f32,
             radius: 10.0 * scale,
         };
-        surface.fill(tokens.field, field_box)?;
-        surface.stroke(tokens.field_border, field_box, thickness)?;
+        surface.control(tokens.field, tokens.field_border, field_box)?;
         let input = Line {
             x: field_box.x + (12.0 * scale).round(),
             top: field_box.y,
@@ -839,10 +837,7 @@ fn render(panel: &mut Panel) {
                     h: row_height,
                     radius: 10.0 * scale,
                 };
-                surface.fill(tokens.select, row_box)?;
-                if tokens.glass {
-                    surface.stroke(tokens.select_border, row_box, thickness)?;
-                }
+                surface.control(tokens.select, tokens.select_border, row_box)?;
             }
             let label_right = if hit.detail.is_empty() {
                 width - text_x

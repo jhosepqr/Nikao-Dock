@@ -77,15 +77,15 @@ use windows::{
         Foundation::{HWND, LPARAM, LRESULT, RECT, SIZE, WPARAM},
         Graphics::Dwm::{
             DWM_THUMBNAIL_PROPERTIES, DWM_TNP_OPACITY, DWM_TNP_RECTDESTINATION, DWM_TNP_RECTSOURCE,
-            DWM_TNP_SOURCECLIENTAREAONLY, DWM_TNP_VISIBLE, DwmQueryThumbnailSourceSize,
+            DWM_TNP_SOURCECLIENTAREAONLY, DWM_TNP_VISIBLE, DwmFlush, DwmQueryThumbnailSourceSize,
             DwmRegisterThumbnail, DwmUnregisterThumbnail, DwmUpdateThumbnailProperties,
         },
         System::{LibraryLoader::GetModuleHandleW, WinRT::Composition::ICompositorDesktopInterop},
         UI::WindowsAndMessaging::{
             CreateWindowExW, DefWindowProcW, DestroyWindow, RegisterClassW, SW_SHOWNOACTIVATE,
-            SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, SetWindowPos, ShowWindow,
-            WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_NOREDIRECTIONBITMAP,
-            WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
+            SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SetWindowPos, ShowWindow, WNDCLASSW,
+            WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_NOREDIRECTIONBITMAP, WS_EX_TOOLWINDOW,
+            WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
         },
     },
     core::{HSTRING, Interface, h, w},
@@ -647,27 +647,12 @@ impl Flight {
         // thumbnail over everything else in its window, and there it would
         // hide the first frames of the flight.
         let stand = create_window(screen)?;
-        let Some((overlay, target, root)) = create_overlay(gfx, screen) else {
-            // SAFETY: Our own window, destroyed once.
-            unsafe {
-                let _ = DestroyWindow(stand);
-            }
-            return None;
-        };
-        if turn.apply(&root).is_err() {
-            // SAFETY: Our own windows, destroyed once.
-            unsafe {
-                let _ = DestroyWindow(stand);
-                let _ = DestroyWindow(overlay);
-            }
-            return None;
-        }
-        // SAFETY: Both are the live windows created above; they are destroyed
-        // here on failure, or by `Drop`.
+        // Publish the stand-in before building the composition tree, so the
+        // desktop has less time to show through when the original disappears.
+        // SAFETY: The stand-in is our own window. Clean it up on every failure.
         let thumbnail = unsafe {
             let Ok(thumbnail) = DwmRegisterThumbnail(stand, HWND(hwnd as *mut _)) else {
                 let _ = DestroyWindow(stand);
-                let _ = DestroyWindow(overlay);
                 return None;
             };
             // Draw the stand-in at the visible frame's original size.
@@ -697,9 +682,30 @@ impl Flight {
             if DwmUpdateThumbnailProperties(thumbnail, &properties).is_err() {
                 let _ = DwmUnregisterThumbnail(thumbnail);
                 let _ = DestroyWindow(stand);
-                let _ = DestroyWindow(overlay);
                 return None;
             }
+            let _ = ShowWindow(stand, SW_SHOWNOACTIVATE);
+            thumbnail
+        };
+        let Some((overlay, target, root)) = create_overlay(gfx, screen) else {
+            // SAFETY: The stand-in has no owner yet; release it here.
+            unsafe {
+                let _ = DwmUnregisterThumbnail(thumbnail);
+                let _ = DestroyWindow(stand);
+            }
+            return None;
+        };
+        if turn.apply(&root).is_err() {
+            // SAFETY: Both windows and the thumbnail belong to this flight.
+            unsafe {
+                let _ = DwmUnregisterThumbnail(thumbnail);
+                let _ = DestroyWindow(stand);
+                let _ = DestroyWindow(overlay);
+            }
+            return None;
+        }
+        // SAFETY: Reorders only the two live overlay windows, without activation.
+        unsafe {
             let _ = ShowWindow(overlay, SW_SHOWNOACTIVATE);
             let _ = SetWindowPos(
                 stand,
@@ -708,19 +714,24 @@ impl Flight {
                 0,
                 0,
                 0,
-                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
             );
-            thumbnail
-        };
+        }
         // Copying the screen takes 30-80 ms however small the rectangle, so it
         // runs on a worker from the first moment instead of holding the dock.
-        // GDI reads what DWM composes next, and that includes the stand-in.
+        // Wait for presentation before reading with GDI to avoid capturing
+        // the desktop frame between the original window and the stand-in.
         let (sender, shot) = channel();
         let capture = thread::Builder::new()
             .name("muelle-capture".into())
             .spawn(move || {
                 let _permit = capture_permit;
-                let shot = screen::capture(visible).map(|image| {
+                // SAFETY: DwmFlush takes no arguments. A slow compositor only
+                // blocks this capture and the existing flight timeout still applies.
+                let shot = unsafe { DwmFlush() }
+                    .ok()
+                    .and_then(|()| screen::capture(visible));
+                let shot = shot.map(|image| {
                     let image = turn.image(image);
                     Captured {
                         restore: halved(&image),

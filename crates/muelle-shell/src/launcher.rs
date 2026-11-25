@@ -7,6 +7,7 @@ use thiserror::Error;
 use windows::{
     Win32::{
         Foundation::{CloseHandle, HANDLE, HWND, LPARAM, RECT, WAIT_OBJECT_0, WPARAM},
+        Graphics::Gdi::{MONITOR_DEFAULTTONULL, MonitorFromRect},
         Security::{GetTokenInformation, TOKEN_ELEVATION, TOKEN_QUERY, TokenElevation},
         System::{
             Com::{
@@ -19,8 +20,9 @@ use windows::{
         UI::{
             Accessibility::{
                 CUIAutomation, HWINEVENTHOOK, IUIAutomation, IUIAutomationInvokePattern,
-                SetWinEventHook, TreeScope_Descendants, UIA_AutomationIdPropertyId,
-                UIA_ClassNamePropertyId, UIA_InvokePatternId, UnhookWinEvent,
+                IUIAutomationLegacyIAccessiblePattern, SetWinEventHook, TreeScope_Descendants,
+                UIA_AutomationIdPropertyId, UIA_ClassNamePropertyId, UIA_InvokePatternId,
+                UIA_LegacyIAccessiblePatternId, UIA_NamePropertyId, UnhookWinEvent,
             },
             Input::KeyboardAndMouse::{
                 INPUT, INPUT_0, INPUT_KEYBOARD, KEYBD_EVENT_FLAGS, KEYBDINPUT, KEYEVENTF_KEYUP,
@@ -56,7 +58,7 @@ pub struct LaunchError {
 /// The dock never takes the focus, so Windows may refuse the foreground to the
 /// app it starts and open it behind other windows. The click that asked for it
 /// was the dock's, which lets the dock hand that right on.
-pub(crate) fn allow_foreground() {
+pub fn allow_foreground() {
     // SAFETY: No pointers; failure only means Windows keeps its default.
     unsafe {
         let _ = AllowSetForegroundWindow(ASFW_ANY);
@@ -169,6 +171,10 @@ fn tap(keys: &[VIRTUAL_KEY]) {
             }
         }
     }
+    send_keys(keys);
+}
+
+fn send_keys(keys: &[VIRTUAL_KEY]) -> bool {
     let key = |vk: VIRTUAL_KEY, flags: KEYBD_EVENT_FLAGS| INPUT {
         r#type: INPUT_KEYBOARD,
         Anonymous: INPUT_0 {
@@ -185,9 +191,7 @@ fn tap(keys: &[VIRTUAL_KEY]) {
         .chain(keys.iter().rev().map(|&vk| key(vk, KEYEVENTF_KEYUP)))
         .collect();
     // SAFETY: The array lives for the duration of the call.
-    unsafe {
-        SendInput(&inputs, size_of::<INPUT>() as i32);
-    }
+    unsafe { SendInput(&inputs, size_of::<INPUT>() as i32) as usize == inputs.len() }
 }
 
 /// Opens the Windows Start menu, exactly as the Windows key does.
@@ -283,7 +287,7 @@ pub fn toggle_hidden_icons(anchor: (i32, i32)) {
                 bring_to_front(flyout);
             }
             if GetForegroundWindow() == flyout {
-                tap(&[VK_ESCAPE]);
+                send_keys(&[VK_ESCAPE]);
             }
         }
         crate::log::line("iconos ocultos: clic para cerrar el menú visible");
@@ -323,7 +327,8 @@ pub fn toggle_hidden_icons(anchor: (i32, i32)) {
 }
 
 fn open_hidden_icons(events: &TrayEvents, anchor: (i32, i32), front: &str, granted: bool) {
-    let invoked = invoke_chevron();
+    let invoke = invoke_chevron();
+    let invoked = invoke.is_ok();
     let mut flyout = if invoked {
         events.wait_for(HIDDEN_ICONS_INVOKE_WAIT, open_overflow)
     } else {
@@ -341,13 +346,16 @@ fn open_hidden_icons(events: &TrayEvents, anchor: (i32, i32), front: &str, grant
         });
         flyout = open_overflow();
         if flyout.is_none() && tray_keyboard_focus().is_some() {
-            tap(&[VK_RETURN]);
-            entered = true;
-            flyout = events.wait_for(HIDDEN_ICONS_INVOKE_WAIT, open_overflow);
+            // Focus is already in the tray. The generic shortcut helper can
+            // activate Muelle first, so keep this Enter on Explorer's queue.
+            entered = send_keys(&[VK_RETURN]);
+            if entered {
+                flyout = events.wait_for(HIDDEN_ICONS_INVOKE_WAIT, open_overflow);
+            }
         }
     }
     crate::log::line(&format!(
-        "iconos ocultos: {path}, permiso de foco: {granted}, invocación aceptada: {invoked}, Enter: {entered}, menú visible: {} (frente inicial: {front}, final: {})",
+        "iconos ocultos: {path}, permiso de foco: {granted}, invocación: {invoke:?}, Enter encolado: {entered}, menú visible: {} (frente inicial: {front}, final: {})",
         flyout.is_some(),
         crate::tracker::foreground_class()
     ));
@@ -419,13 +427,13 @@ pub fn note_menu_bar_press() {
     OVERFLOW_OPEN_AT_PRESS.store(open_overflow().is_some(), Ordering::Relaxed);
 }
 
-/// Presses the actual XAML chevron, or the legacy chevron (control 1502).
-/// Other tray icons can share the SystemTrayIcon automation ID.
-fn invoke_chevron() -> bool {
+/// Presses the XAML chevron or the legacy button by its specific identity.
+/// SystemTrayIcon by itself can also resolve to an unrelated tray icon.
+fn invoke_chevron() -> windows::core::Result<()> {
     // SAFETY: COM is initialized for this short-lived thread and every
     // interface is released before `CoUninitialize`.
     unsafe {
-        let apartment = CoInitializeEx(None, COINIT_MULTITHREADED).is_ok();
+        CoInitializeEx(None, COINIT_MULTITHREADED).ok()?;
         let invoked = (|| -> windows::core::Result<()> {
             let taskbar = FindWindowW(w!("Shell_TrayWnd"), None)?;
             let automation: IUIAutomation =
@@ -438,28 +446,56 @@ fn invoke_chevron() -> bool {
             let found = root
                 .FindFirst(TreeScope_Descendants, &chevron)
                 .or_else(|_| {
+                    // Some builds expose the chevron's friendly name and the
+                    // generic SystemTrayIcon ID, without the specific class.
+                    let labels = [
+                        "Show hidden icons",
+                        "Mostrar iconos ocultos",
+                        "Mostrar íconos ocultos",
+                    ];
+                    let [english, spanish, spanish_accented] = labels.map(|label| {
+                        automation.CreatePropertyCondition(UIA_NamePropertyId, &label.into())
+                    });
                     let legacy = automation
                         .CreatePropertyCondition(UIA_AutomationIdPropertyId, &"1502".into())?;
-                    root.FindFirst(TreeScope_Descendants, &legacy)
+                    let conditions = [
+                        Some(english?),
+                        Some(spanish?),
+                        Some(spanish_accented?),
+                        Some(legacy),
+                    ];
+                    root.FindFirst(
+                        TreeScope_Descendants,
+                        &automation.CreateOrConditionFromNativeArray(&conditions)?,
+                    )
                 })?;
+            let default_action = || {
+                found
+                    .GetCurrentPatternAs::<IUIAutomationLegacyIAccessiblePattern>(
+                        UIA_LegacyIAccessiblePatternId,
+                    )?
+                    .DoDefaultAction()
+            };
             // The match can be the glyph inside the button: climb to the
             // nearest element that can be pressed.
             let walker = automation.ControlViewWalker()?;
-            let mut element = found;
+            let mut element = found.clone();
             for _ in 0..4 {
                 if let Ok(invoke) =
                     element.GetCurrentPatternAs::<IUIAutomationInvokePattern>(UIA_InvokePatternId)
                 {
-                    return invoke.Invoke();
+                    return invoke
+                        .Invoke()
+                        .or_else(|error| default_action().map_err(|_| error));
                 }
-                element = walker.GetParentElement(&element)?;
+                let Ok(parent) = walker.GetParentElement(&element) else {
+                    break;
+                };
+                element = parent;
             }
-            Err(windows::core::Error::empty())
-        })()
-        .is_ok();
-        if apartment {
-            CoUninitialize();
-        }
+            default_action()
+        })();
+        CoUninitialize();
         invoked
     }
 }
@@ -573,6 +609,7 @@ fn open_overflow() -> Option<HWND> {
                     && GetWindowRect(window, &mut rect).is_ok()
                     && rect.right > rect.left
                     && rect.bottom > rect.top
+                    && !MonitorFromRect(&rect, MONITOR_DEFAULTTONULL).is_invalid()
             })
         }
     })
@@ -591,10 +628,9 @@ fn keep_under(flyout: HWND, (center, top): (i32, i32)) {
     }
     let width = rect.right - rect.left;
     let screen = monitor.screen;
-    let left = (center - width / 2).clamp(
-        screen.left + HIDDEN_ICONS_GAP,
-        (screen.right - HIDDEN_ICONS_GAP - width).max(screen.left),
-    );
+    let min_left = screen.left + HIDDEN_ICONS_GAP;
+    let max_left = (screen.right - HIDDEN_ICONS_GAP - width).max(min_left);
+    let left = (center - width / 2).clamp(min_left, max_left);
     let top = top + HIDDEN_ICONS_GAP;
     if (rect.left, rect.top) == (left, top) {
         return;

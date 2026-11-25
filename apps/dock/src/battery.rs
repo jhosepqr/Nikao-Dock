@@ -49,6 +49,10 @@ const SETTINGS: &str = "ms-settings:batterysaver";
 /// Posted on `WA_INACTIVE`; the panel closes only if it really lost the
 /// foreground once activation has settled.
 const CHECK_FOREGROUND: u32 = WM_APP + 41;
+const SAVER_ON: char = '\u{E73E}';
+const SAVER_OFF: char = '\u{E711}';
+const POWER_MODE: char = '\u{E7E8}';
+const SETTINGS_ICON: char = '\u{E713}';
 
 thread_local! {
     static PANEL: RefCell<Option<Panel>> = const { RefCell::new(None) };
@@ -56,11 +60,18 @@ thread_local! {
     static CLOSED_AT: Cell<Option<Instant>> = const { Cell::new(None) };
 }
 
-#[derive(Clone)]
 struct Lines {
     percent: Option<String>,
     rows: Vec<String>,
+    saver: Option<(char, &'static str)>,
+    mode: Option<String>,
     link: String,
+}
+
+impl Lines {
+    fn detail_count(&self) -> i32 {
+        self.rows.len() as i32 + i32::from(self.mode.is_some())
+    }
 }
 
 struct Panel {
@@ -263,17 +274,18 @@ fn place(panel: &mut Panel) {
     let anchor = panel.anchor;
     let monitor = system::monitor_at(anchor).or_else(system::primary_monitor);
     let scale = monitor.map(|monitor| monitor.scale).unwrap_or(1.0);
-    let pad = px(scale, 18.0);
+    let pad = px(scale, 14.0);
     let percent_h = if panel.lines.percent.is_some() {
-        px(scale, 46.0)
+        px(scale, 38.0)
     } else {
         0
     };
-    let row_h = px(scale, 24.0).max(1);
-    let link_h = px(scale, 36.0).max(1);
-    let gap = px(scale, 12.0);
-    let width = px(scale, 304.0).max(228);
-    let height = pad + percent_h + panel.lines.rows.len() as i32 * row_h + gap + link_h + pad;
+    let row_h = px(scale, 20.0).max(1);
+    let link_h = px(scale, 32.0).max(1);
+    let gap = px(scale, 8.0);
+    let width = px(scale, 270.0);
+    let link_top = pad + percent_h + panel.lines.detail_count() * row_h + gap;
+    let height = link_top + link_h + pad;
     panel.scale = scale;
     panel.width = width;
     panel.height = height;
@@ -281,11 +293,14 @@ fn place(panel: &mut Panel) {
     panel.percent_h = percent_h;
     panel.row_h = row_h;
     panel.link_height = link_h;
-    panel.link_top = pad + percent_h + panel.lines.rows.len() as i32 * row_h + gap;
+    panel.link_top = link_top;
     let (mut left, mut top) = (anchor.x - width / 2, anchor.y + px(scale, 8.0));
     if let Some(monitor) = monitor {
         let screen = monitor.screen;
-        left = left.clamp(screen.left + 8, (screen.right - width - 8).max(screen.left));
+        left = left.clamp(
+            screen.left + 8,
+            (screen.right - width - 8).max(screen.left + 8),
+        );
         let bottom_limit = screen.bottom - height - 8;
         if top > bottom_limit {
             top = bottom_limit.max(screen.top);
@@ -314,8 +329,13 @@ fn px(scale: f32, value: f32) -> i32 {
     (value * scale).round() as i32
 }
 
-fn hi_word(lparam: LPARAM) -> i32 {
-    i32::from((lparam.0 as u32 >> 16) as u16 as i16)
+fn over_link(panel: &Panel, lparam: LPARAM) -> bool {
+    let x = i32::from(lparam.0 as i16);
+    let y = i32::from((lparam.0 >> 16) as i16);
+    x >= panel.pad
+        && x < panel.width - panel.pad
+        && y >= panel.link_top
+        && y < panel.link_top + panel.link_height
 }
 
 unsafe extern "system" fn panel_proc(
@@ -342,13 +362,12 @@ unsafe extern "system" fn panel_proc(
             LRESULT(0)
         }
         WM_MOUSEMOVE => {
-            let y = hi_word(lparam);
             PANEL.with(|slot| {
                 let mut guard = slot.borrow_mut();
                 let Some(panel) = guard.as_mut() else {
                     return;
                 };
-                let hot = y >= panel.link_top && y < panel.link_top + panel.link_height;
+                let hot = over_link(panel, lparam);
                 if hot == panel.hot {
                     return;
                 }
@@ -358,11 +377,10 @@ unsafe extern "system" fn panel_proc(
             LRESULT(0)
         }
         WM_LBUTTONUP => {
-            let y = hi_word(lparam);
             let open = PANEL.with(|slot| {
-                slot.borrow().as_ref().is_some_and(|panel| {
-                    y >= panel.link_top && y < panel.link_top + panel.link_height
-                })
+                slot.borrow()
+                    .as_ref()
+                    .is_some_and(|panel| over_link(panel, lparam))
             });
             if open {
                 open_settings();
@@ -395,7 +413,7 @@ fn render(panel: &mut Panel) {
     let Some(scene) = panel.scene.clone() else {
         return;
     };
-    let lines = panel.lines.clone();
+    let lines = &panel.lines;
     let hot = panel.hot;
     let pad = panel.pad as f32;
     let percent_h = panel.percent_h as f32;
@@ -412,7 +430,6 @@ fn render(panel: &mut Panel) {
     };
     if let Err(error) = scene.paint(&panel.gfx, &canvas, |surface| {
         let tokens = surface.tokens();
-        let thickness = scale.round().max(1.0);
         let mut top = pad;
         if let Some(percent) = &lines.percent {
             surface.text(
@@ -423,11 +440,56 @@ fn render(panel: &mut Panel) {
                     height: percent_h,
                     max_width: width - pad * 2.0,
                 },
-                32.0,
+                29.0,
                 true,
                 tokens.text,
             )?;
+            if let Some((glyph, label)) = lines.saver {
+                let height = (23.0 * scale).round();
+                let glyph_width = (18.0 * scale).round();
+                let inset = (7.0 * scale).round();
+                let text_width = surface.measure(label, 10.5, false)?.min(width * 0.47);
+                let badge_width = (text_width + glyph_width + 2.0 * inset).ceil();
+                let badge = Round {
+                    x: width - pad - badge_width,
+                    y: top + ((percent_h - height) / 2.0).round(),
+                    w: badge_width,
+                    h: height,
+                    radius: height / 2.0,
+                };
+                surface.control(tokens.row_fill, tokens.row_border, badge)?;
+                surface.glyph(glyph, badge.x + inset, badge.y, height)?;
+                surface.text(
+                    label,
+                    Line {
+                        x: badge.x + inset + glyph_width,
+                        top: badge.y,
+                        height,
+                        max_width: text_width,
+                    },
+                    10.5,
+                    false,
+                    tokens.text,
+                )?;
+            }
             top += percent_h;
+        }
+        let icon_space = (24.0 * scale).round();
+        if let Some(mode) = &lines.mode {
+            let top = top + lines.rows.len() as f32 * row_h;
+            surface.glyph(POWER_MODE, pad, top, row_h)?;
+            surface.text(
+                mode,
+                Line {
+                    x: pad + icon_space,
+                    top,
+                    height: row_h,
+                    max_width: width - pad * 2.0 - icon_space,
+                },
+                12.5,
+                false,
+                tokens.secondary,
+            )?;
         }
         for (index, row) in lines.rows.iter().enumerate() {
             // Clear widget hierarchy: primary charge state first, muted details below.
@@ -454,23 +516,23 @@ fn render(panel: &mut Panel) {
             y: link_top,
             w: width - pad * 2.0,
             h: link_height,
-            radius: 10.0 * scale,
+            radius: link_height / 2.0,
         };
         let (fill, border) = if hot {
             (tokens.select, tokens.select_border)
         } else {
             (tokens.row_fill, tokens.row_border)
         };
-        surface.fill(fill, pill)?;
-        surface.stroke(border, pill, thickness)?;
+        surface.control(fill, border, pill)?;
         let inset = (12.0 * scale).round();
+        surface.glyph(SETTINGS_ICON, pad + inset, link_top, link_height)?;
         surface.text(
             &lines.link,
             Line {
-                x: pad + inset,
+                x: pad + inset + icon_space,
                 top: link_top,
                 height: link_height,
-                max_width: (width - (pad + inset) * 2.0).max(1.0),
+                max_width: (width - (pad + inset) * 2.0 - icon_space).max(1.0),
             },
             13.0,
             true,
@@ -487,6 +549,8 @@ fn lines(menu: Option<&BatteryMenu>, words: &Words) -> Lines {
         return Lines {
             percent: None,
             rows: vec![words.none.to_owned()],
+            saver: None,
+            mode: None,
             link: words.settings.to_owned(),
         };
     };
@@ -494,20 +558,16 @@ fn lines(menu: Option<&BatteryMenu>, words: &Words) -> Lines {
     if let Some(text) = time_line(menu, words) {
         rows.push(text);
     }
-    rows.push(
-        if menu.saver {
-            words.saver_on
-        } else {
-            words.saver_off
-        }
-        .to_owned(),
-    );
-    if let Some(text) = mode_line(menu, words) {
-        rows.push(text);
-    }
+    let saver = if menu.saver {
+        (SAVER_ON, words.saver_on)
+    } else {
+        (SAVER_OFF, words.saver_off)
+    };
     Lines {
         percent: Some(format!("{}%", menu.percent)),
         rows,
+        saver: Some(saver),
+        mode: mode_line(menu, words),
         link: words.settings.to_owned(),
     }
 }
@@ -584,8 +644,8 @@ fn words_for(language: Language) -> Words {
             remaining_after: "",
             until_full_before: "",
             until_full_after: " para completar",
-            saver_on: "Ahorro de energía activado",
-            saver_off: "Ahorro de energía desactivado",
+            saver_on: "Ahorro activo",
+            saver_off: "Ahorro inactivo",
             efficiency: "Modo: Mejor eficiencia energética",
             balanced: "Modo: Equilibrado",
             performance: "Modo: Mejor rendimiento",
@@ -604,8 +664,8 @@ fn words_for(language: Language) -> Words {
             remaining_after: "",
             until_full_before: "",
             until_full_after: " pour être pleine",
-            saver_on: "Économiseur d'énergie activé",
-            saver_off: "Économiseur d'énergie désactivé",
+            saver_on: "Éco actif",
+            saver_off: "Éco inactif",
             efficiency: "Mode : Meilleure efficacité",
             balanced: "Mode : Équilibré",
             performance: "Mode : Meilleures performances",
@@ -704,8 +764,8 @@ fn words_for(language: Language) -> Words {
             remaining_after: "",
             until_full_before: "",
             until_full_after: " até ficar cheia",
-            saver_on: "Poupança de energia ligada",
-            saver_off: "Poupança de energia desligada",
+            saver_on: "Economia ligada",
+            saver_off: "Economia desligada",
             efficiency: "Modo: Melhor eficiência energética",
             balanced: "Modo: Equilibrado",
             performance: "Modo: Melhor desempenho",
@@ -760,13 +820,8 @@ mod tests {
         assert_eq!(text.percent.as_deref(), Some("80%"));
         assert!(text.rows.iter().any(|row| row == "Cargando"));
         assert!(text.rows.iter().any(|row| row == "45 min para completar"));
-        assert!(
-            text.rows
-                .iter()
-                .any(|row| row == "Ahorro de energía desactivado")
-        );
-        assert!(text.rows.iter().any(|row| row == "Modo: Mejor rendimiento"));
-        assert!(text.rows.iter().all(|row| !row.contains("Equilibrado")));
+        assert_eq!(text.saver, Some((SAVER_OFF, "Ahorro inactivo")));
+        assert_eq!(text.mode.as_deref(), Some("Modo: Mejor rendimiento"));
         assert_eq!(text.link, "Configuración de la batería");
     }
 
@@ -783,8 +838,8 @@ mod tests {
         };
         let text = lines(Some(&menu), &words_for(Language::En));
         assert!(text.rows.iter().any(|row| row == "2 h 15 min remaining"));
-        assert!(text.rows.iter().any(|row| row == "Energy saver on"));
-        assert!(text.rows.iter().any(|row| row == "Plan: Balanced"));
+        assert_eq!(text.saver, Some((SAVER_ON, "Energy saver on")));
+        assert_eq!(text.mode.as_deref(), Some("Plan: Balanced"));
         assert!(text.rows.iter().all(|row| !row.contains("until full")));
     }
 
@@ -792,6 +847,8 @@ mod tests {
     fn a_desktop_without_a_battery_still_offers_the_settings_link() {
         let text = lines(None, &words_for(Language::En));
         assert!(text.percent.is_none());
+        assert!(text.saver.is_none());
+        assert!(text.mode.is_none());
         assert_eq!(text.rows, ["No battery"]);
         assert_eq!(text.link, "Battery settings");
     }

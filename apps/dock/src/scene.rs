@@ -145,7 +145,7 @@ impl Theme {
             // All the light is on the edge, like a lens.
             Material::Clear => (56, 0.55, false, [235, 80, 60, 190]),
             // The brightest reflections catch opposite edges of the glass.
-            Material::Glass if translucent => (110, 0.55, true, [225, 72, 54, 195]),
+            Material::Glass if translucent => (122, 0.55, true, [235, 76, 58, 210]),
             Material::Glass => (66, 0.55, true, [130, 56, 45, 115]),
         };
         let panel_tint = match material {
@@ -338,14 +338,7 @@ impl GlassSurface {
         sheen.SetEndPoint(end)?;
         let stops = sheen.ColorStops()?;
         let highlights: &[(f32, Color)] = if theme.specular {
-            &[
-                (0.0, rgba(245, 253, 255, theme.sheen)),
-                (0.16, rgba(186, 237, 255, theme.sheen / 2)),
-                (0.45, rgba(186, 237, 255, 0)),
-                (0.73, rgba(255, 202, 215, 0)),
-                (0.94, rgba(255, 202, 215, theme.sheen / 2)),
-                (1.0, rgba(255, 243, 247, theme.sheen - theme.sheen / 4)),
-            ]
+            &crate::panel_glass::gloss_stops(theme.sheen)
         } else {
             &[
                 (0.0, rgba(255, 255, 255, theme.sheen)),
@@ -382,12 +375,7 @@ impl GlassSurface {
             rim_brush.SetInterpolationSpace(CompositionColorSpace::RgbLinear)?;
             let stops = rim_brush.ColorStops()?;
             let colors = if theme.specular {
-                [
-                    (221, 249, 255),
-                    (199, 233, 248),
-                    (247, 213, 229),
-                    (255, 233, 241),
-                ]
+                crate::panel_glass::RIM_COLORS
             } else {
                 [(255, 255, 255); 4]
             };
@@ -1165,10 +1153,10 @@ mod theme_tests {
         let default = Theme::new(glass_look(true, true, 90, 45));
         assert_eq!(default.tint, rgba(255, 255, 255, 39));
         assert_eq!(default.backdrop_opacity, 0.45);
-        assert_eq!(default.sheen, 110);
+        assert_eq!(default.sheen, 122);
         assert_eq!(default.sheen_end, 0.55);
         assert!(default.specular);
-        assert_eq!(default.rim, [225, 72, 54, 195]);
+        assert_eq!(default.rim, [235, 76, 58, 210]);
         assert_eq!(default.shadow, rgba(0, 0, 0, 40));
         assert_eq!(default.shadow_blur, 30.0);
         assert_eq!(default.shadow_offset, 6.0);
