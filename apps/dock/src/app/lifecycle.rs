@@ -32,9 +32,10 @@ use windows::{
                 EVENT_SYSTEM_MINIMIZEEND, EVENT_SYSTEM_MINIMIZESTART, FindWindowW, GetMessageW,
                 IDC_ARROW, KillTimer, LoadCursorW, MSG, PM_REMOVE, PeekMessageW, PostMessageW,
                 RegisterClassW, RegisterShellHookWindow, RegisterWindowMessageW, SetTimer,
-                WINDOW_EX_STYLE, WINEVENT_OUTOFCONTEXT, WINEVENT_SKIPOWNPROCESS, WM_CLOSE, WM_QUIT,
-                WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_NOREDIRECTIONBITMAP,
-                WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
+                TranslateMessage, WINDOW_EX_STYLE, WINEVENT_OUTOFCONTEXT, WINEVENT_SKIPOWNPROCESS,
+                WM_CLOSE, WM_QUIT, WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE,
+                WS_EX_NOREDIRECTIONBITMAP, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT,
+                WS_POPUP,
             },
         },
     },
@@ -122,6 +123,9 @@ pub(super) fn message_loop() {
                     if msg.message == WM_QUIT {
                         return;
                     }
+                    // Keys become WM_CHAR only here; without it the search
+                    // field receives key-downs but no text.
+                    let _ = TranslateMessage(&msg);
                     DispatchMessageW(&msg);
                 }
                 with_app_then("animación", App::tick);
@@ -135,6 +139,7 @@ pub(super) fn message_loop() {
                     }
                     return;
                 }
+                let _ = TranslateMessage(&msg);
                 DispatchMessageW(&msg);
             }
         }

@@ -148,9 +148,10 @@ impl Surface<'_> {
     }
 
     /// One line, vertically centred in the row, elided to `line.max_width`.
-    pub fn text(&self, text: &str, line: Line, font: f32, bold: bool, color: Rgba) -> Result<()> {
+    /// Returns the drawn width.
+    pub fn text(&self, text: &str, line: Line, font: f32, bold: bool, color: Rgba) -> Result<f32> {
         if text.is_empty() || line.max_width < 1.0 {
-            return Ok(());
+            return Ok(0.0);
         }
         let shadow = self
             .canvas
@@ -176,7 +177,27 @@ impl Surface<'_> {
             top,
             brush.width,
             brush.height,
-        )
+        )?;
+        Ok(brush.width)
+    }
+
+    /// Width `text` would take, without drawing it.
+    pub fn measure(&self, text: &str, font: f32, bold: bool) -> Result<f32> {
+        if text.is_empty() {
+            return Ok(0.0);
+        }
+        let brush = self.gfx.text_brush_colored(
+            text,
+            self.canvas.scale,
+            TextStyle {
+                size: font,
+                bold,
+                color: [0, 0, 0, 255],
+                shadow: None,
+                max_width: None,
+            },
+        )?;
+        Ok(brush.width)
     }
 
     pub fn fill(&self, color: Rgba, round: Round) -> Result<()> {

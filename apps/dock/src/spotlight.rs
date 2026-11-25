@@ -38,11 +38,11 @@ use windows::{
                 GWLP_WNDPROC, GetWindowTextW, HWND_TOPMOST, IDC_ARROW, IsWindowVisible,
                 LoadCursorW, PostMessageW, RegisterClassW, SW_HIDE, SW_SHOWNA, SWP_NOACTIVATE,
                 SendMessageW, SetWindowLongPtrW, SetWindowPos, SetWindowTextW, ShowWindow,
-                WA_INACTIVE, WINDOW_EX_STYLE, WINDOW_STYLE, WM_ACTIVATE, WM_APP, WM_COMMAND,
-                WM_CTLCOLOREDIT, WM_DESTROY, WM_ERASEBKGND, WM_KEYDOWN, WM_LBUTTONUP, WM_MOUSEMOVE,
-                WM_SETFOCUS, WM_SETFONT, WNDCLASSW, WNDPROC, WS_CHILD, WS_CLIPCHILDREN,
-                WS_EX_NOREDIRECTIONBITMAP, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP, WS_TABSTOP,
-                WS_VISIBLE,
+                WA_INACTIVE, WINDOW_EX_STYLE, WINDOW_STYLE, WM_ACTIVATE, WM_APP, WM_CHAR,
+                WM_COMMAND, WM_CTLCOLOREDIT, WM_DESTROY, WM_ERASEBKGND, WM_KEYDOWN, WM_LBUTTONDOWN,
+                WM_LBUTTONUP, WM_MOUSEMOVE, WM_SETFOCUS, WM_SETFONT, WNDCLASSW, WNDPROC, WS_CHILD,
+                WS_CLIPCHILDREN, WS_EX_NOREDIRECTIONBITMAP, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
+                WS_POPUP, WS_TABSTOP, WS_VISIBLE,
             },
         },
     },
@@ -59,8 +59,11 @@ use crate::{
 const MAX_SHORTCUTS: usize = 4_000;
 const MAX_DEPTH: u8 = 6;
 const MAX_HITS: usize = 8;
+/// Logical size of the query, placeholder and caret line.
+const FIELD_FONT: f32 = 15.0;
 /// `EM_SETCUEBANNER`. Copied by the control, so the buffer need only live for the call.
 const EM_SETCUEBANNER: u32 = 5377;
+const EM_GETSEL: u32 = 0x00B0;
 /// A click that closes the panel by deactivating it is followed by the
 /// magnifier's own click. Ignore a reopen that close just caused.
 const REOPEN_GUARD: Duration = Duration::from_millis(250);
@@ -95,7 +98,7 @@ struct Entry {
 
 #[derive(Clone)]
 struct Hit {
-    index: usize,
+    target: String,
     label: String,
     detail: String,
 }
@@ -123,12 +126,16 @@ struct Panel {
     entries: Vec<Entry>,
     hits: Vec<Hit>,
     selected: Option<usize>,
-    notice: Option<&'static str>,
+    /// What the EDIT holds and where its caret is (UTF-16 units). The EDIT
+    /// cannot draw in a `WS_EX_NOREDIRECTIONBITMAP` window, so the field's
+    /// text, placeholder and caret are drawn from these.
+    query: String,
+    caret: usize,
 }
 
 struct Words {
     placeholder: &'static str,
-    none: &'static str,
+    files: &'static str,
     app: &'static str,
     settings: &'static str,
 }
@@ -188,7 +195,8 @@ fn show(gfx: &Gfx, anchor: POINT) {
         panel.entries = catalog();
         panel.hits.clear();
         panel.selected = None;
-        panel.notice = None;
+        panel.query.clear();
+        panel.caret = 0;
         place(panel, anchor, 0);
         sync_edit(panel);
         crate::panel_theme::style_window(panel.hwnd, panel.tokens);
@@ -341,7 +349,8 @@ fn create(gfx: &Gfx, anchor: POINT) -> Result<(), windows::core::Error> {
         entries: Vec::new(),
         hits: Vec::new(),
         selected: None,
-        notice: None,
+        query: String::new(),
+        caret: 0,
     };
     PANEL.with(|slot| *slot.borrow_mut() = Some(panel));
     Ok(())
@@ -465,11 +474,12 @@ fn refilter() {
             return;
         };
         let query = window_text(panel.edit);
-        let (hits, notice) = filter(&panel.entries, &query);
-        let rows = if notice.is_some() { 1 } else { hits.len() };
+        let hits = filter(&panel.entries, &query);
+        let rows = hits.len();
         panel.selected = if hits.is_empty() { None } else { Some(0) };
         panel.hits = hits;
-        panel.notice = notice;
+        panel.query = query;
+        panel.caret = caret_of(panel.edit);
         let anchor = panel.anchor;
         place(panel, anchor, rows);
         render(panel);
@@ -519,11 +529,10 @@ fn launch_selected() {
     let target = PANEL.with(|slot| {
         let guard = slot.borrow();
         let panel = guard.as_ref()?;
-        let hit = panel.hits.get(panel.selected?)?;
         panel
-            .entries
-            .get(hit.index)
-            .map(|entry| entry.target.clone())
+            .hits
+            .get(panel.selected?)
+            .map(|hit| hit.target.clone())
     });
     if let Some(target) = target
         && launcher::open(&target).is_ok()
@@ -541,6 +550,34 @@ fn launch_at(index: usize) {
         }
     });
     launch_selected();
+}
+
+/// End of the EDIT's selection, which is where its caret sits.
+fn caret_of(edit: HWND) -> usize {
+    let mut end = 0u32;
+    unsafe {
+        let _ = SendMessageW(edit, EM_GETSEL, None, Some(LPARAM(&raw mut end as isize)));
+    }
+    end as usize
+}
+
+/// Redraws the field when the caret moved without a text change (arrows,
+/// Home, End, a click). `try_borrow_mut`: the EDIT also gets messages sent
+/// while the panel is borrowed (font and position changes).
+fn sync_caret(edit: HWND) {
+    PANEL.with(|slot| {
+        let Ok(mut guard) = slot.try_borrow_mut() else {
+            return;
+        };
+        let Some(panel) = guard.as_mut() else {
+            return;
+        };
+        let caret = caret_of(edit);
+        if caret != panel.caret {
+            panel.caret = caret;
+            render(panel);
+        }
+    });
 }
 
 fn window_text(hwnd: HWND) -> String {
@@ -672,12 +709,21 @@ unsafe extern "system" fn edit_proc(
     if message == WM_KEYDOWN && handle_key(wparam) {
         return LRESULT(0);
     }
+    // Enter, Esc and Tab were handled as keys; a single-line EDIT beeps on
+    // their characters.
+    if message == WM_CHAR && matches!(wparam.0, 0x0D | 0x1B | 0x09) {
+        return LRESULT(0);
+    }
     let previous = EDIT_PROC.load(Ordering::Relaxed);
     if previous == 0 {
         return LRESULT(0);
     }
     let previous: WNDPROC = unsafe { std::mem::transmute(previous) };
-    unsafe { CallWindowProcW(previous, hwnd, message, wparam, lparam) }
+    let result = unsafe { CallWindowProcW(previous, hwnd, message, wparam, lparam) };
+    if matches!(message, WM_KEYDOWN | WM_LBUTTONDOWN | WM_LBUTTONUP) {
+        sync_caret(hwnd);
+    }
+    result
 }
 
 fn render(panel: &mut Panel) {
@@ -686,7 +732,8 @@ fn render(panel: &mut Panel) {
     };
     let hits = panel.hits.clone();
     let selected = panel.selected;
-    let notice = panel.notice;
+    let query = panel.query.clone();
+    let caret = panel.caret;
     let scale = panel.scale;
     let width = panel.width as f32;
     let row_top = panel.row_top as f32;
@@ -710,23 +757,49 @@ fn render(panel: &mut Panel) {
         };
         surface.fill(tokens.field, field_box)?;
         surface.stroke(tokens.field_border, field_box, thickness)?;
-        let pad = (16.0 * scale).round();
-        let text_x = pad + (10.0 * scale).round();
-        if let Some(notice) = notice {
+        let input = Line {
+            x: field_box.x + (12.0 * scale).round(),
+            top: field_box.y,
+            height: field_box.h,
+            max_width: (field_box.w - (24.0 * scale).round()).max(1.0),
+        };
+        let caret_x = if query.is_empty() {
             surface.text(
-                notice,
+                words().placeholder,
                 Line {
-                    x: text_x,
-                    top: row_top,
-                    height: row_height,
-                    max_width: (width - text_x * 2.0).max(1.0),
+                    x: input.x + (4.0 * scale).round(),
+                    max_width: input.max_width - (4.0 * scale).round(),
+                    ..input
                 },
-                14.0,
+                FIELD_FONT,
                 false,
                 tokens.secondary,
             )?;
-            return Ok(());
-        }
+            0.0
+        } else {
+            let drawn = surface.text(&query, input, FIELD_FONT, false, tokens.text)?;
+            let units: Vec<u16> = query.encode_utf16().collect();
+            if caret >= units.len() {
+                drawn
+            } else {
+                let before = String::from_utf16_lossy(&units[..caret]);
+                surface.measure(&before, FIELD_FONT, false)?.min(drawn)
+            }
+        };
+        // Static caret: no blink, so no timer while the panel is open.
+        let caret_h = (18.0 * scale).round();
+        surface.fill(
+            tokens.text,
+            Round {
+                x: input.x + caret_x.round(),
+                y: field_box.y + ((field_box.h - caret_h) / 2.0).round(),
+                w: (1.5 * scale).max(1.0),
+                h: caret_h,
+                radius: 0.0,
+            },
+        )?;
+        let pad = (16.0 * scale).round();
+        let text_x = pad + (10.0 * scale).round();
         for (index, hit) in hits.iter().enumerate() {
             let top = row_top + index as f32 * row_height;
             if selected == Some(index) {
@@ -947,9 +1020,13 @@ struct Rank {
     alias: usize,
 }
 
-fn filter(entries: &[Entry], query: &str) -> (Vec<Hit>, Option<&'static str>) {
-    if fold(query).trim().is_empty() {
-        return (Vec::new(), None);
+/// Apps and Settings pages that match, best first, then one row that hands
+/// the query to Explorer's indexed file search. Nothing is queried until
+/// that row is opened.
+fn filter(entries: &[Entry], query: &str) -> Vec<Hit> {
+    let trimmed = query.trim();
+    if fold(trimmed).is_empty() {
+        return Vec::new();
     }
     let mut ranked = Vec::new();
     for (index, entry) in entries.iter().enumerate() {
@@ -981,17 +1058,14 @@ fn filter(entries: &[Entry], query: &str) -> (Vec<Hit>, Option<&'static str>) {
             });
         }
     }
-    if ranked.is_empty() {
-        return (Vec::new(), Some(words().none));
-    }
     ranked.sort_by(|left, right| {
         right
             .score
             .cmp(&left.score)
             .then_with(|| left.index.cmp(&right.index))
     });
-    ranked.truncate(MAX_HITS);
-    let hits = ranked
+    ranked.truncate(MAX_HITS - 1);
+    let mut hits: Vec<Hit> = ranked
         .into_iter()
         .map(|rank| {
             let entry = &entries[rank.index];
@@ -1001,13 +1075,31 @@ fn filter(entries: &[Entry], query: &str) -> (Vec<Hit>, Option<&'static str>) {
                 entry.aliases[rank.alias].clone()
             };
             Hit {
-                index: rank.index,
+                target: entry.target.clone(),
                 label,
                 detail: shown_detail(entry),
             }
         })
         .collect();
-    (hits, None)
+    hits.push(Hit {
+        target: format!("search-ms:query={}", encode_query(trimmed)),
+        label: format!("{} \u{201c}{trimmed}\u{201d}", words().files),
+        detail: String::new(),
+    });
+    hits
+}
+
+/// Percent-encodes `text` for a `search-ms:` URI.
+fn encode_query(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for byte in text.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~') {
+            out.push(char::from(byte));
+        } else {
+            out.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    out
 }
 
 fn shown_detail(entry: &Entry) -> String {
@@ -1098,49 +1190,49 @@ fn words() -> Words {
     match strings::language() {
         Language::Es => Words {
             placeholder: "Buscar aplicaciones y ajustes",
-            none: "Sin resultados",
+            files: "Buscar archivos:",
             app: "Aplicación",
             settings: "Ajustes",
         },
         Language::Fr => Words {
             placeholder: "Rechercher des applications et des réglages",
-            none: "Aucun résultat",
+            files: "Rechercher des fichiers :",
             app: "Application",
             settings: "Réglages",
         },
         Language::Zh => Words {
             placeholder: "搜索应用和设置",
-            none: "没有结果",
+            files: "搜索文件：",
             app: "应用",
             settings: "设置",
         },
         Language::Hi => Words {
             placeholder: "ऐप और सेटिंग खोजें",
-            none: "कोई परिणाम नहीं",
+            files: "फ़ाइलें खोजें:",
             app: "ऐप",
             settings: "सेटिंग्स",
         },
         Language::Ar => Words {
             placeholder: "ابحث عن التطبيقات والإعدادات",
-            none: "لا توجد نتائج",
+            files: "البحث في الملفات:",
             app: "تطبيق",
             settings: "الإعدادات",
         },
         Language::Bn => Words {
             placeholder: "অ্যাপ ও সেটিংস খুঁজুন",
-            none: "কোনো ফল নেই",
+            files: "ফাইল খুঁজুন:",
             app: "অ্যাপ",
             settings: "সেটিংস",
         },
         Language::Pt => Words {
             placeholder: "Procurar aplicações e definições",
-            none: "Sem resultados",
+            files: "Procurar ficheiros:",
             app: "Aplicação",
             settings: "Definições",
         },
         Language::En | Language::Auto => Words {
             placeholder: "Search apps and settings",
-            none: "No matches",
+            files: "Search files for",
             app: "Application",
             settings: "Settings",
         },
@@ -1164,9 +1256,14 @@ mod tests {
     #[test]
     fn a_blank_query_matches_nothing() {
         assert!(score("   ", "Visual Studio Code").is_none());
-        let (hits, notice) = filter(&[app("Code")], "  ");
-        assert!(hits.is_empty());
-        assert!(notice.is_none());
+        assert!(filter(&[app("Code")], "  ").is_empty());
+    }
+
+    #[test]
+    fn the_last_row_searches_files_even_without_an_app_match() {
+        let hits = filter(&[app("Code")], " año 2026 ");
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].target, "search-ms:query=a%C3%B1o%202026");
     }
 
     #[test]
@@ -1183,9 +1280,10 @@ mod tests {
         assert!(score("vsc", "Visual Studio Code").is_some());
         let mut entries: Vec<Entry> = (0..12).map(|index| app(&format!("App {index}"))).collect();
         entries.push(app("Notes"));
-        let (hits, notice) = filter(&entries, "app");
-        assert!(notice.is_none());
+        let hits = filter(&entries, "app");
         assert_eq!(hits.len(), MAX_HITS);
-        assert!(hits.iter().all(|hit| hit.label.starts_with("App")));
+        let (apps, files) = hits.split_at(MAX_HITS - 1);
+        assert!(apps.iter().all(|hit| hit.label.starts_with("App")));
+        assert_eq!(files[0].target, "search-ms:query=app");
     }
 }
