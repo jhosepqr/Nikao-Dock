@@ -153,10 +153,21 @@ jobs:
             if ($LASTEXITCODE) { throw "no se pudo reemplazar $env:GLASS_TAG" }
           }
           gh api --method DELETE "repos/$env:GITHUB_REPOSITORY/git/refs/tags/$env:GLASS_TAG"
-          gh release create $env:GLASS_TAG upload/Nikao-Dock-Setup.exe `
-            --repo $env:GITHUB_REPOSITORY `
-            --prerelease `
-            --title "Nikao Dock $env:GLASS_TAG" `
-            --notes-file notes.md
-          if ($LASTEXITCODE) { throw 'gh release create failed' }
+          for ($attempt = 1; $attempt -le 3; $attempt++) {
+            $result = gh release create $env:GLASS_TAG upload/Nikao-Dock-Setup.exe `
+              --repo $env:GITHUB_REPOSITORY `
+              --target $env:GITHUB_SHA `
+              --prerelease `
+              --title "Nikao Dock $env:GLASS_TAG" `
+              --notes-file notes.md 2>&1
+            $code = $LASTEXITCODE
+            $result | Write-Host
+            if ($code -eq 0) { break }
+            if ($attempt -eq 3) {
+              $detail = ($result -join ' ').Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
+              Write-Output "::error title=Publish the pre-release::$detail"
+              throw 'gh release create failed'
+            }
+            Start-Sleep -Seconds (5 * $attempt)
+          }
           $url >> $env:GITHUB_STEP_SUMMARY
