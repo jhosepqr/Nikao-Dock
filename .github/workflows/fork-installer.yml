@@ -126,13 +126,21 @@ jobs:
         run: |
           $ErrorActionPreference = 'Continue'
           $PSNativeCommandUseErrorActionPreference = $false
-          gh release view $env:GLASS_TAG --repo $env:GITHUB_REPOSITORY | Out-Null
+          $url = "https://github.com/$env:GITHUB_REPOSITORY/releases/download/$env:GLASS_TAG/Nikao-Dock-Setup.exe"
+          $release = gh release view $env:GLASS_TAG --repo $env:GITHUB_REPOSITORY --json isDraft
           $exists = ($LASTEXITCODE -eq 0)
+          if ($exists -and ($release | ConvertFrom-Json).isDraft) {
+            gh release upload $env:GLASS_TAG upload/Nikao-Dock-Setup.exe --clobber --repo $env:GITHUB_REPOSITORY
+            if ($LASTEXITCODE) { throw 'could not upload the installer to the draft release' }
+            gh release edit $env:GLASS_TAG --draft=false --prerelease --target $env:GITHUB_SHA --repo $env:GITHUB_REPOSITORY
+            if ($LASTEXITCODE) { throw 'could not publish the draft release' }
+            $url >> $env:GITHUB_STEP_SUMMARY
+            exit 0
+          }
           if ($exists -and '${{ github.event_name }}' -ne 'workflow_dispatch') {
             Write-Host "$env:GLASS_TAG already published; skipping publish on push."
             exit 0
           }
-          $url = "https://github.com/$env:GITHUB_REPOSITORY/releases/download/$env:GLASS_TAG/Nikao-Dock-Setup.exe"
           @(
             'Instalador sin firmar de main. Tarjeta de batería compacta, controles con reflejos Liquid Glass y botón de energía nativo. Ajustes en el inicio del Efecto genio y la apertura de iconos ocultos.'
             ''
