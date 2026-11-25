@@ -516,12 +516,18 @@ impl App {
         {
             self.close_preview();
         }
-        let windows = &self.windows;
-        self.last_rects
-            .retain(|hwnd, _| windows.iter().any(|window| window.hwnd == *hwnd));
-        let tracked: Vec<isize> = self.windows.iter().map(|window| window.hwnd).collect();
-        for hwnd in tracked {
-            self.remember_rect(hwnd);
+        if self.config.genie {
+            let windows = &self.windows;
+            self.last_rects
+                .retain(|hwnd, _| windows.iter().any(|window| window.hwnd == *hwnd));
+            let visible: Vec<isize> = windows
+                .iter()
+                .filter(|window| !window.minimized)
+                .map(|window| window.hwnd)
+                .collect();
+            for hwnd in visible {
+                self.remember_rect(hwnd);
+            }
         }
         self.calm_windows();
         let recent_before = self.roster.recent().to_vec();
@@ -629,18 +635,12 @@ impl App {
         )) || pruned
     }
 
-    /// Notes where `hwnd` is on screen. A maximized window forgets it: its
-    /// rectangle then comes from the work area, and a stale one from before
-    /// could be taken after it is un-maximized.
+    /// Notes both the visible frame and its resize margins before minimizing.
     pub(super) fn remember_rect(&mut self, hwnd: isize) {
-        match tracker::screen_rect(hwnd) {
-            Some((rect, false)) => {
-                self.last_rects.insert(hwnd, rect);
-            }
-            Some((_, true)) => {
-                self.last_rects.remove(&hwnd);
-            }
-            None => {}
+        if self.config.genie
+            && let Some(bounds) = tracker::window_bounds(hwnd)
+        {
+            self.last_rects.insert(hwnd, bounds);
         }
     }
 }

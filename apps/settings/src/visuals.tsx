@@ -1,8 +1,5 @@
 import type { CSSProperties, ReactNode } from "react";
 import {
-  GLASS_BLUR_DEFAULT,
-  GLASS_TRANSPARENCY_DEFAULT,
-  type Appearance,
   type DockDensity,
   type DockPosition,
   type GenieSpeed,
@@ -66,61 +63,39 @@ export function DockPreview({ position, iconSize, wallpaper, density = "normal" 
   </span>;
 }
 
-type Theme = Exclude<Appearance, "auto">;
-
-/** Same curve as `glass_tint_alpha` in the dock: 235, then 50 at 65, 35 at 80, 15 at 100. */
+/** Same tint curve as the dock, including the lift over the live backdrop. */
 function glassTintAlpha(transparency: number): number {
   const level = Math.min(100, Math.max(0, transparency));
-  return level <= 60 ? 235 - 3 * level : 115 - level;
+  return (level <= 60 ? 235 - 3 * level : 115 - level) + 14;
 }
 
-function glassPreviewStyle(transparency?: number, blur?: number): CSSProperties | undefined {
-  if (transparency === undefined && blur === undefined) return undefined;
-  const tintAlpha = glassTintAlpha(transparency ?? GLASS_TRANSPARENCY_DEFAULT);
-  const b = Math.min(100, Math.max(0, blur ?? GLASS_BLUR_DEFAULT));
-  const dockAlpha = tintAlpha / 255;
-  const barAlpha = Math.min(235, Math.max(64, tintAlpha + 24)) / 255;
-  const blurPx = (b / 100) * 18;
-  const saturate = 1.15 + 0.85 * (b / 100);
-  return {
-    "--dock": `rgba(255, 255, 255, ${dockAlpha.toFixed(2)})`,
-    "--bar": `rgba(255, 255, 255, ${barAlpha.toFixed(2)})`,
-    "--blur": `blur(${blurPx.toFixed(1)}px) saturate(${saturate.toFixed(2)})`,
-  } as CSSProperties;
-}
-
-/** One theme's bar and dock over the wallpaper. Each layer carries its own
- * wallpaper: a clipped layer cannot blur what lies outside it. */
-function ThemeLayer({ theme, wallpaper, half, style }: { theme: Theme; wallpaper: string | null; half?: boolean; style?: CSSProperties }) {
-  return <span className="theme-layer" data-theme={theme} data-half={half ? "" : undefined} style={style}>
-    {wallpaper ? <img className="preview-wallpaper" src={wallpaper} alt="" /> : null}
-    <span className="theme-bar"><i /><i /><i /><b /></span>
-    <span className="theme-dock">{MINI_ICONS}</span>
-  </span>;
-}
-
-/** The materials in CSS, as the dock draws them: `auto` shows light and
- * dark split, as macOS shows its automatic appearance. */
-export function ThemePreview({
-  appearance,
+/** A local illustration that updates only when a slider or wallpaper changes. */
+export function GlassPreview({
   wallpaper,
   glassTransparency,
   glassBlur,
+  translucent,
+  backdrop,
 }: {
-  appearance: Appearance;
   wallpaper: string | null;
-  glassTransparency?: number;
-  glassBlur?: number;
+  glassTransparency: number;
+  glassBlur: number;
+  translucent: boolean;
+  backdrop: boolean;
 }) {
-  return <span className="preview-screen preview-theme">
-    {appearance === "auto"
-      ? <><ThemeLayer theme="light" wallpaper={wallpaper} /><ThemeLayer theme="dark" wallpaper={wallpaper} half /></>
-      : <ThemeLayer
-          theme={appearance}
-          wallpaper={wallpaper}
-          style={appearance === "glass" ? glassPreviewStyle(glassTransparency, glassBlur) : undefined}
-        />}
-  </span>;
+  const clear = glassTintAlpha(glassTransparency);
+  const tint = backdrop ? clear : Math.max(150, clear - 14);
+  const blur = backdrop ? Math.min(100, Math.max(0, glassBlur)) : 0;
+  const style = {
+    "--dock": translucent ? `rgba(255, 255, 255, ${tint / 255})` : "rgb(236, 238, 242)",
+    "--bar": translucent ? `rgba(255, 255, 255, ${Math.min(235, Math.max(64, tint + 24)) / 255})` : "rgb(236, 238, 242)",
+    "--blur": `blur(${0.18 * blur}px)`,
+  } as CSSProperties;
+  return <div className="preview-screen preview-theme" style={style} aria-hidden="true">
+    {wallpaper ? <img className="preview-wallpaper" src={wallpaper} alt="" /> : null}
+    <span className="theme-bar"><i /><i /><i /><b /></span>
+    <span className="theme-dock">{MINI_ICONS}</span>
+  </div>;
 }
 
 export function IslandPreview({ style, wallpaper }: { style: IslandStyle; wallpaper: string | null }) {

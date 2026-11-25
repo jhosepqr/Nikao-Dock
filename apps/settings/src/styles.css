@@ -372,7 +372,7 @@ input:focus-visible {
 
 .row + .row,
 .visual-setting + .row,
-.card-note + .row,
+.preview-theme + .row,
 .row-sub + .row {
   border-top: 1px solid var(--line);
 }
@@ -556,31 +556,40 @@ input:focus-visible {
 .preview-wave i:nth-child(3) { height: 6px; }
 .preview-speed { width: 100%; max-width: 120px; height: 48px; color: var(--text-dim); }
 
-.card-note { margin: 0; padding: 0 14px 14px; }
-
-/* Themes: the same tints, blur and rims the dock draws (scene.rs), at preview size. */
-.preview-theme { height: 92px; }
-.theme-layer { position: absolute; inset: 0; --ink: rgba(0, 0, 0, 0.7); --bar: rgba(255, 255, 255, 0.43); --dock: rgba(255, 255, 255, 0.18); --rim: rgba(255, 255, 255, 0.55); --blur: blur(5px) saturate(1.6); }
-.theme-layer[data-half] { clip-path: polygon(58% 0, 100% 0, 100% 100%, 42% 100%); }
-.theme-bar { position: absolute; inset: 0 0 auto; height: 10px; display: flex; align-items: center; gap: 3px; padding: 0 6px; background: var(--bar); backdrop-filter: var(--blur); }
-.theme-bar i { width: 8px; height: 2px; border-radius: 2px; background: var(--ink); }
+/* The cold and warm reflections match the native glass gradient. */
+.preview-theme {
+  height: clamp(112px, 23vw, 174px);
+  width: auto;
+  margin: 12px 14px;
+  border-radius: 12px;
+  background: radial-gradient(ellipse at 19% 83%, #e6b8c9, transparent 56%),
+    linear-gradient(132deg, #a0acbd, #6698ad);
+}
+.theme-bar { position: absolute; inset: 0 0 auto; height: 14px; display: flex; align-items: center; gap: 4px; padding: 0 9px; background: var(--bar); backdrop-filter: var(--blur); }
+.theme-bar i, .theme-bar b { height: 2px; border-radius: 2px; background: #172637bb; }
+.theme-bar i { width: 8px; }
 .theme-bar i:first-child { width: 4px; }
-.theme-bar b { width: 12px; height: 2px; margin-inline-start: auto; border-radius: 2px; background: var(--ink); }
-.theme-dock { position: absolute; bottom: 5px; left: 50%; transform: translateX(-50%); display: flex; gap: 3px; padding: 3px; border-radius: 6px; background: var(--dock); backdrop-filter: var(--blur); box-shadow: inset 0 0 0 0.5px var(--rim), inset 0 6px 6px -6px rgba(255, 255, 255, 0.35), 0 2px 5px rgba(0, 0, 0, 0.22); }
-.theme-dock i { width: 9px; height: 9px; border-radius: 2.5px; background: #338fe9; }
+.theme-bar b { width: 12px; margin-inline-start: auto; }
+.theme-dock {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 5px;
+  padding: 7px;
+  border-radius: 13px;
+  border: 1px solid #e9f9ff80;
+  background: linear-gradient(215deg, #f5fdff6e, #baedff37 16%, #baedff00 45%, #ffcad700 73%, #ffcad737 94%, #fff3f752),
+    var(--dock);
+  backdrop-filter: var(--blur);
+  box-shadow: inset -1px 1px 1px #ddf9ffbf, inset 1px -1px 1px #ffe9f1a3, 0 5px 14px #192c432d;
+}
+.theme-dock i { width: 17px; height: 17px; border-radius: 4px; background: #338fe9; }
 .theme-dock i:nth-child(2) { background: #f0b249; }
 .theme-dock i:nth-child(3) { background: #a488d5; }
 .theme-dock i:nth-child(4) { background: #70bfa4; }
 .theme-dock i:nth-child(5) { background: #d68093; }
-.theme-layer[data-theme="glass"] { --bar: rgba(255, 255, 255, 0.25); --dock: rgba(255, 255, 255, 0.10); --rim: rgba(255, 255, 255, 0.94); --blur: blur(8px) saturate(1.53); }
-.theme-layer[data-theme="glass"] .theme-dock { border-radius: 8px; box-shadow: inset 0 0 0 0.5px var(--rim), inset 0 1px 0 rgba(255, 255, 255, 0.92), 0 3px 8px rgba(0, 0, 0, 0.18); }
-.theme-layer[data-theme="dark"] { --ink: rgba(255, 255, 255, 0.85); --bar: rgba(24, 24, 26, 0.47); --dock: rgba(28, 28, 30, 0.32); --rim: rgba(255, 255, 255, 0.3); }
-.theme-layer[data-theme="frosted"] { --bar: rgba(250, 251, 253, 0.77); --dock: rgba(250, 251, 253, 0.72); --rim: rgba(255, 255, 255, 0.9); --blur: blur(10px) saturate(1.4); }
-.theme-layer[data-theme="clear"] { --ink: #fff; --bar: rgba(0, 0, 0, 0.15); --dock: rgba(255, 255, 255, 0.06); --rim: rgba(255, 255, 255, 0.9); --blur: blur(2.5px) saturate(1.5); }
-.theme-layer[data-theme="clear"] .theme-bar i, .theme-layer[data-theme="clear"] .theme-bar b { box-shadow: 0 0 2px rgba(0, 0, 0, 0.5); }
-.theme-layer[data-theme="aurora"] { --ink: #fff; --rim: rgba(255, 255, 255, 0.45); }
-.theme-layer[data-theme="aurora"] .theme-bar { background: linear-gradient(90deg, rgba(36, 214, 168, 0.59), rgba(118, 92, 255, 0.55), rgba(246, 96, 182, 0.52)), rgba(10, 14, 38, 0.47); }
-.theme-layer[data-theme="aurora"] .theme-dock { background: linear-gradient(135deg, rgba(36, 214, 168, 0.59), rgba(118, 92, 255, 0.55), rgba(246, 96, 182, 0.52)), rgba(12, 16, 42, 0.36); }
 
 .slider input:disabled {
   opacity: 0.4;

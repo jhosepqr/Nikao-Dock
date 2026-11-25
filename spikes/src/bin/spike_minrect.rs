@@ -1,8 +1,9 @@
 //! What a window reports about its own rectangle at the moment it starts to
 //! minimize (EVENT_SYSTEM_MINIMIZESTART), when it was maximized.
 
-use std::{thread::sleep, time::Duration};
+use std::{cell::Cell, thread::sleep, time::Duration};
 
+use muelle_shell::tracker::{self, WindowBounds};
 use windows::{
     Win32::{
         Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM},
@@ -20,6 +21,10 @@ use windows::{
     },
     core::w,
 };
+
+thread_local! {
+    static BEFORE: Cell<Option<WindowBounds>> = const { Cell::new(None) };
+}
 
 unsafe extern "system" fn proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LRESULT {
     // SAFETY: Default handling.
@@ -53,7 +58,7 @@ unsafe extern "system" fn on_event(
         let _ = GetWindowPlacement(hwnd, &mut placement);
         println!(
             "computed (whole, visible): {:?}",
-            muelle_shell::tracker::rect_before_minimize(hwnd.0 as isize, None)
+            tracker::rect_before_minimize(hwnd.0 as isize, BEFORE.get())
         );
         println!(
             "at MINIMIZESTART: iconic={} window={:?} frame={:?} flags={:#x} showCmd={} normal={:?}",
@@ -129,6 +134,7 @@ fn main() {
             size_of::<RECT>() as u32,
         );
         println!("maximized on screen: window={rect:?} visible={frame:?}");
+        BEFORE.set(tracker::window_bounds(hwnd.0 as isize));
         let _ = ShowWindow(hwnd, SW_MINIMIZE);
         pump(600);
         let _ = DestroyWindow(hwnd);

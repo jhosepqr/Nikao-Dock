@@ -18,9 +18,6 @@ concurrency:
   group: fork-installer
   cancel-in-progress: true
 
-env:
-  GLASS_TAG: v0.1.22-glass.10
-
 jobs:
   check:
     permissions:
@@ -46,6 +43,14 @@ jobs:
           cache-dependency-path: apps/settings/pnpm-lock.yaml
       - uses: Swatinem/rust-cache@v2
 
+      - name: Read the fork version
+        run: |
+          $version = (Get-Content apps/settings/src-tauri/tauri.fork.conf.json -Raw | ConvertFrom-Json).version
+          if ($version -notmatch '^\d+\.\d+\.\d+-glass\.[1-9]\d*$') {
+            throw "invalid fork version: $version"
+          }
+          "GLASS_TAG=v$version" >> $env:GITHUB_ENV
+
       - name: Install settings dependencies
         working-directory: apps/settings
         run: pnpm install --frozen-lockfile
@@ -63,12 +68,18 @@ jobs:
           $ascii = [Text.Encoding]::ASCII.GetString($bytes)
           $utf16 = [Text.Encoding]::Unicode.GetString($bytes)
           $upstream = 'crafter-station/Muelle/releases/latest/download/latest.json'
-          $fork = 'jhosepqr/Nikao-Dock/releases/download/v0.1.22-glass.10/latest.json'
+          $fork = 'jhosepqr/Nikao-Dock/releases/latest/download/latest.json'
           if ($ascii.Contains($upstream) -or $utf16.Contains($upstream)) {
             throw 'muelle-settings.exe still contains the upstream updater endpoint'
           }
           if (-not ($ascii.Contains($fork) -or $utf16.Contains($fork))) {
             throw 'muelle-settings.exe is missing the fork updater endpoint'
+          }
+          $version = $env:GLASS_TAG.Substring(1)
+          foreach ($binary in @($settings, 'target/release/muelle.exe')) {
+            if ((Get-Item -LiteralPath $binary).VersionInfo.ProductVersion -ne $version) {
+              throw "$binary is missing fork version $version"
+            }
           }
 
       - name: Collect Nikao-Dock-Setup.exe
@@ -123,7 +134,7 @@ jobs:
           }
           $url = "https://github.com/$env:GITHUB_REPOSITORY/releases/download/$env:GLASS_TAG/Nikao-Dock-Setup.exe"
           @(
-            'Instalador sin firmar de main. El menú nativo de íconos ocultos espera el foco de teclado de la bandeja cuando necesita recurrir a Win+B. La barra superior conserva el indicador de idioma y la posición de sus íconos mientras el menú recibe el foco.'
+            'Instalador sin firmar de main. Vidrio es la única apariencia e incorpora reflejos en tonos fríos y rosados. El Efecto genio toma el tamaño visible de cada ventana al minimizar. Ajustes muestra la versión del fork.'
             ''
             'No se actualiza solo al Muelle oficial de crafter-station. La próxima compilación se instala a mano. No incluye latest.json.'
             ''

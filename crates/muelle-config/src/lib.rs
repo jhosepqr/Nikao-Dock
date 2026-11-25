@@ -278,7 +278,7 @@ pub enum Language {
     Auto,
 }
 
-/// The themes Settings offers, as macOS offers its appearances. While
+/// Appearance values understood in saved settings. While
 /// transparency effects are off, or energy saver is on, they are drawn solid.
 /// On Windows 10, Glass can still be a translucent tint without blur when
 /// transparency is allowed.
@@ -294,7 +294,7 @@ pub enum Appearance {
     /// Glass tinted with the colours of the northern lights. Light content.
     Aurora,
     /// Light glass with dark content. It does not follow Windows dark mode.
-    /// New installs use it. A version-1 `Auto` moves here once.
+    /// The dock uses this appearance.
     Glass,
     /// Follow Windows' light or dark mode. Also what a theme added by a newer
     /// version reads as (serde needs this fallback last).
@@ -340,18 +340,15 @@ impl Config {
 
     /// One-time moves onto the current Glass defaults.
     ///
-    /// Version 1 `Auto` becomes Glass. A file already at version 2 or newer
-    /// keeps whatever theme it has, so choosing `Auto` again stays `Auto`.
+    /// Older themes switch to Glass, the appearance now offered by Settings.
     /// Version 2 stored transparency 65; version 3 stored transparency 80 and
     /// blur 100. Only those exact shipped defaults move onto the current Clear
     /// Liquid Glass defaults; any other value is a user choice and stays.
     /// Returns whether the file should be written back.
     fn migrated(mut self) -> (Self, bool) {
-        let mut changed = false;
+        let mut changed = self.appearance != Appearance::Glass;
+        self.appearance = Appearance::Glass;
         if self.version < 2 {
-            if self.appearance == Appearance::Auto {
-                self.appearance = Appearance::Glass;
-            }
             self.version = 2;
             changed = true;
         }
@@ -644,7 +641,7 @@ pub fn update_preferences(
                 if fields.contains_key(&key)
                     && !matches!(
                         key.as_str(),
-                        "version" | "pinned" | "groups" | "recent" | "taskbarPins"
+                        "version" | "appearance" | "pinned" | "groups" | "recent" | "taskbarPins"
                     )
                 {
                     fields.insert(key, value);
@@ -1178,7 +1175,7 @@ mod tests {
     }
 
     #[test]
-    fn the_appearance_follows_windows_unless_chosen() -> Result<(), serde_json::Error> {
+    fn deserialization_recognizes_legacy_appearance_values() -> Result<(), serde_json::Error> {
         // A file with no theme uses Glass. A theme this version does not know
         // stays `Auto`, which is what a newer build's value reads as.
         let fresh: Config = serde_json::from_str("{}")?;
@@ -1239,7 +1236,7 @@ mod tests {
     }
 
     #[test]
-    fn version_one_auto_becomes_glass_and_an_explicit_theme_stays() -> Result<(), ConfigError> {
+    fn legacy_themes_switch_to_glass() -> Result<(), ConfigError> {
         let auto_path = scratch("migrate-auto");
         save(&auto_path, &Config::default())?;
         overwrite(
@@ -1257,14 +1254,14 @@ mod tests {
         save(&dark_path, &Config::default())?;
         overwrite(&dark_path, r#"{"version":1,"appearance":"dark"}"#)?;
         let dark = required(&dark_path)?;
-        assert_eq!(dark.appearance, Appearance::Dark);
+        assert_eq!(dark.appearance, Appearance::Glass);
         assert_eq!(dark.version, CURRENT_VERSION);
 
         let kept = scratch("keep-auto");
         save(&kept, &Config::default())?;
         overwrite(&kept, r#"{"version":2,"appearance":"auto"}"#)?;
         let chosen = required(&kept)?;
-        assert_eq!(chosen.appearance, Appearance::Auto);
+        assert_eq!(chosen.appearance, Appearance::Glass);
         assert_eq!(chosen.version, CURRENT_VERSION);
         Ok(())
     }
@@ -1273,7 +1270,10 @@ mod tests {
     fn the_glass_migration_is_written_back_once() -> Result<(), ConfigError> {
         let path = scratch("persist-glass");
         save(&path, &Config::default())?;
-        overwrite(&path, r#"{"version":1,"appearance":"auto","iconSize":56}"#)?;
+        overwrite(
+            &path,
+            r#"{"version":4,"appearance":"aurora","iconSize":56}"#,
+        )?;
         let config = load_and_persist(&path)?.ok_or_else(|| ConfigError::Io {
             path: path.clone(),
             source: io::Error::new(io::ErrorKind::NotFound, "falta la configuración"),
@@ -1303,13 +1303,11 @@ mod tests {
             Some(56)
         );
 
-        // A second open sees the migrated file and does not treat Auto as pending.
-        overwrite(&path, r#"{"version":2,"appearance":"auto","iconSize":56}"#)?;
         let again = load_and_persist(&path)?.ok_or_else(|| ConfigError::Io {
             path: path.clone(),
             source: io::Error::new(io::ErrorKind::NotFound, "falta la configuración"),
         })?;
-        assert_eq!(again.appearance, Appearance::Auto);
+        assert_eq!(again.appearance, Appearance::Glass);
         let raw = fs::read_to_string(&path).map_err(|source| ConfigError::Io {
             path: path.clone(),
             source,
@@ -1321,7 +1319,7 @@ mod tests {
             })?;
         assert_eq!(
             stored.get("appearance").and_then(|value| value.as_str()),
-            Some("auto")
+            Some("glass")
         );
         Ok(())
     }

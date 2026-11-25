@@ -669,9 +669,8 @@ pub(crate) struct App {
     tracker: WindowTracker,
     windows: Vec<TrackedWindow>,
     preview_order: PreviewOrder,
-    /// Where each window was last seen on screen while not maximized, for
-    /// the genie of snapped windows (see `tracker::rect_before_minimize`).
-    last_rects: HashMap<isize, RECT>,
+    /// Where each window was last visible before minimizing into the dock.
+    last_rects: HashMap<isize, muelle_shell::tracker::WindowBounds>,
     entries: Vec<Entry>,
     icons: Visuals,
     downloads: Option<String>,

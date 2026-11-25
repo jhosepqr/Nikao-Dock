@@ -133,7 +133,7 @@ function fixture(section = "menubar", config = {}, save = async () => {}, galler
 }
 
 test("each section renders only its own controls, in every language and visibility state", () => {
-  const markers = { appearance: "themeHint", dock: "size", windows: "genie", menubar: "menuBarShow", system: "autostart" };
+  const markers = { appearance: "glassTransparency", dock: "size", windows: "genie", menubar: "menuBarShow", system: "autostart" };
   for (const language of Object.keys(texts)) for (const menuBar of [true, false]) {
     for (const section of Object.keys(markers)) {
       const view = fixture(section, { language, menuBar });
@@ -409,31 +409,20 @@ test("returning to Settings reflects dock removals without overwriting local edi
   } finally { unmount(); }
 });
 
-test("the theme picker offers every theme with a preview, saves only the choice and themes Settings", async () => {
-  const themes = ["glass", "auto", "light", "dark", "frosted", "clear", "aurora"];
+test("Appearance shows a single Glass preview for legacy settings in every language", async () => {
   for (const language of Object.keys(texts)) {
-    const view = fixture("appearance", { language });
-    const picker = [...elements(view.body())].find((node) => node.props.label === texts[language].theme);
-    assert.deepEqual(picker.props.options.map((option) => option.value), themes);
-    assert.ok(picker.props.options.every((option) => option.preview && option.label));
-    assert.equal(picker.props.value, "glass");
+    const view = fixture("appearance", { language, appearance: "dark" });
+    const body = view.body();
+    assert.equal([...elements(body)].filter((node) => node.props.label === texts[language].theme).length, 0);
+    const html = renderToStaticMarkup(body);
+    assert.match(html, /class="preview-screen preview-theme"/);
+    assert.ok(html.includes(texts[language].themeGlass));
   }
-  const view = fixture("appearance");
+  const view = fixture("appearance", { appearance: "dark" });
   const unmount = await view.mount();
   try {
-    assert.deepEqual(view.themes, ["light"], "glass uses the light window theme");
-    view.change(texts.en.theme, "auto");
-    view.fire(60);
-    await settle();
-    assert.deepEqual(view.calls, [{ appearance: "auto" }]);
-    view.change(texts.en.theme, "glass");
-    view.fire(60);
-    await settle();
-    assert.deepEqual(view.calls.at(-1), { appearance: "glass" });
-    // An old file without the setting reads as glass.
-    const old = fixture("appearance", { appearance: undefined });
-    const picker = [...elements(old.body())].find((node) => node.props.label === texts.en.theme);
-    assert.equal(picker.props.value, "glass");
+    assert.deepEqual(view.themes, ["light"]);
+    assert.deepEqual(view.calls, []);
   } finally { unmount(); }
 });
 
@@ -450,14 +439,8 @@ test("search opens as Spotlight and can be switched to Windows search", async ()
   } finally { unmount(); }
 });
 
-test("glass sliders render only for Glass and save only the changed level", async () => {
-  for (const theme of ["auto", "light", "dark", "frosted", "clear", "aurora"]) {
-    const view = fixture("appearance", { appearance: theme });
-    const controls = [...elements(view.body())];
-    assert.ok(!controls.some((node) => node.props.label === texts.en.glassTransparency), theme);
-    assert.ok(!controls.some((node) => node.props.label === texts.en.glassBlur), theme);
-  }
-  const view = fixture("appearance", { appearance: "glass" });
+test("glass sliders apply to a legacy theme and save only the changed level", async () => {
+  const view = fixture("appearance", { appearance: "aurora" });
   const unmount = await view.mount();
   try {
     const controls = [...elements(view.body())];

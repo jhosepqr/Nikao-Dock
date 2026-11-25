@@ -3,7 +3,6 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  type Appearance,
   type Config,
   type DockPosition,
   type DockDensity,
@@ -38,7 +37,7 @@ import {
   setAutostart,
 } from "./config";
 import { Card, Row, Segmented, Select, Slider, SubRow, Toggle, VisualChoices } from "./controls";
-import { DockDensityPreview, DockPreview, IslandPreview, SettingIcon, SpeedPreview, ThemePreview } from "./visuals";
+import { DockDensityPreview, DockPreview, GlassPreview, IslandPreview, SettingIcon, SpeedPreview } from "./visuals";
 import { type SectionId, SectionIcon } from "./icons";
 import { UpdateBanner } from "./UpdateBanner";
 import { WallpaperGallery } from "./WallpaperGallery";
@@ -265,10 +264,9 @@ export function App() {
       .catch(() => setFailed(true));
   }, [confirmingReset, update]);
 
-  const appearance = config?.appearance ?? "glass";
   useEffect(() => {
-    getCurrentWindow().setTheme(windowTheme(appearance)).catch(() => {});
-  }, [appearance]);
+    getCurrentWindow().setTheme("light").catch(() => {});
+  }, []);
 
   if (!config) return <div className="window" />;
   const glassTransparency = config.glassTransparency ?? GLASS_TRANSPARENCY_DEFAULT;
@@ -378,66 +376,49 @@ export function App() {
         <div className="content-body" key={section}>
           {section === "appearance" ? (
             <>
-              <Card>
-                <VisualChoices<Appearance>
-                  label={t.theme}
-                  columns={3}
-                  value={appearance}
-                  options={THEMES.map((theme) => ({
-                    value: theme,
-                    label: themeName(t, theme),
-                    detail: theme === "auto" ? t.themeAutoDetail : undefined,
-                    preview: (
-                      <ThemePreview
-                        appearance={theme}
-                        wallpaper={wallpaper}
-                        glassTransparency={theme === "glass" ? glassTransparency : undefined}
-                        glassBlur={theme === "glass" ? glassBlur : undefined}
-                      />
-                    ),
-                  }))}
-                  onChange={(appearance) => update({ appearance })}
+              <Card title={t.themeGlass}>
+                <GlassPreview
+                  wallpaper={wallpaper}
+                  glassTransparency={glassTransparency}
+                  glassBlur={glassBlur}
+                  translucent={transparencyAvailable}
+                  backdrop={transparencyAvailable && windows11}
                 />
-                <p className="card-note row-hint">{t.themeHint}</p>
-                {appearance === "glass" ? (
-                  <>
-                    <Row icon={<SettingIcon name="glass" />} label={t.glassTransparency}>
-                      <Slider
-                        label={t.glassTransparency}
-                        value={glassTransparency}
-                        min={GLASS_LEVEL.min}
-                        max={GLASS_LEVEL.max}
-                        unit="%"
-                        onChange={(glassTransparency) => update({ glassTransparency })}
-                      />
-                    </Row>
-                    <Row
-                      icon={<SettingIcon name="blur" />}
-                      label={t.glassBlur}
-                      hint={!windows11 ? t.glassBlurUnavailable : undefined}
+                <Row icon={<SettingIcon name="glass" />} label={t.glassTransparency}>
+                  <Slider
+                    label={t.glassTransparency}
+                    value={glassTransparency}
+                    min={GLASS_LEVEL.min}
+                    max={GLASS_LEVEL.max}
+                    unit="%"
+                    onChange={(glassTransparency) => update({ glassTransparency })}
+                  />
+                </Row>
+                <Row
+                  icon={<SettingIcon name="blur" />}
+                  label={t.glassBlur}
+                  hint={!windows11 ? t.glassBlurUnavailable : undefined}
+                >
+                  <Slider
+                    label={t.glassBlur}
+                    value={glassBlur}
+                    min={GLASS_LEVEL.min}
+                    max={GLASS_LEVEL.max}
+                    unit="%"
+                    disabled={!windows11}
+                    onChange={(glassBlur) => update({ glassBlur })}
+                  />
+                </Row>
+                {!transparencyAvailable ? (
+                  <Row label={t.glassTransparencyOff}>
+                    <button
+                      type="button"
+                      className="push"
+                      onClick={() => void openTransparencySettings()}
                     >
-                      <Slider
-                        label={t.glassBlur}
-                        value={glassBlur}
-                        min={GLASS_LEVEL.min}
-                        max={GLASS_LEVEL.max}
-                        unit="%"
-                        disabled={!windows11}
-                        onChange={(glassBlur) => update({ glassBlur })}
-                      />
-                    </Row>
-                    {!transparencyAvailable ? (
-                      <Row label={t.glassTransparencyOff}>
-                        <button
-                          type="button"
-                          className="push"
-                          onClick={() => void openTransparencySettings()}
-                        >
-                          {t.genieOffAction}
-                        </button>
-                      </Row>
-                    ) : null}
-                  </>
+                      {t.genieOffAction}
+                    </button>
+                  </Row>
                 ) : null}
               </Card>
               <WallpaperGallery texts={t} onApplied={setWallpaper} />
@@ -792,34 +773,7 @@ function updateHint(t: Texts, state: UpdateState, version: string): string {
 
 const SECTIONS: readonly SectionId[] = ["appearance", "dock", "windows", "menubar", "system"];
 
-const THEMES: readonly Appearance[] = ["glass", "auto", "light", "dark", "frosted", "clear", "aurora"];
 
-function themeName(t: Texts, theme: Appearance): string {
-  switch (theme) {
-    case "glass":
-      return t.themeGlass;
-    case "auto":
-      return t.themeAuto;
-    case "light":
-      return t.themeLight;
-    case "dark":
-      return t.themeDark;
-    case "frosted":
-      return t.themeFrosted;
-    case "clear":
-      return t.themeClear;
-    case "aurora":
-      return t.themeAurora;
-  }
-}
-
-/** Settings takes the theme's light or dark too, as macOS apps take its appearance. */
-const windowTheme = (theme: Appearance) =>
-  theme === "auto"
-    ? null
-    : theme === "glass" || theme === "light" || theme === "frosted"
-      ? "light"
-      : "dark";
 
 function sectionTitle(t: Texts, section: SectionId): string {
   switch (section) {

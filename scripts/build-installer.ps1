@@ -9,8 +9,18 @@
 # each native step checks $LASTEXITCODE instead.
 $ErrorActionPreference = 'Continue'
 $root = Split-Path -Parent $PSScriptRoot
+$previousForkVersion = $env:NIKAO_FORK_VERSION
 Push-Location $root
 try {
+    $forkConfig = 'src-tauri/tauri.fork.conf.json'
+    if ($env:MUELLE_FORK_BUILD) {
+        $version = (Get-Content "apps/settings/$forkConfig" -Raw | ConvertFrom-Json).version
+        if ($version -notmatch '^\d+\.\d+\.\d+-glass\.[1-9]\d*$') {
+            throw "invalid fork version: $version"
+        }
+        $env:NIKAO_FORK_VERSION = $version
+    }
+
     $target = (cargo metadata --format-version 1 --no-deps | ConvertFrom-Json).target_directory
     $triple = 'x86_64-pc-windows-msvc'
 
@@ -33,7 +43,7 @@ try {
     # updater endpoint and its public key; the Rust guard is compiled in too.
     if ($env:MUELLE_FORK_BUILD) {
         Write-Warning 'MUELLE_FORK_BUILD: this installer will not update from crafter-station.'
-        $configs += @('--config', 'src-tauri/tauri.fork.conf.json')
+        $configs += @('--config', $forkConfig)
     }
 
     Push-Location (Join-Path $root 'apps/settings')
@@ -44,4 +54,7 @@ try {
 
     Get-ChildItem (Join-Path $target 'release/bundle/nsis/*-setup.exe*') |
         Select-Object FullName, @{ n = 'MB'; e = { [math]::Round($_.Length / 1MB, 2) } }
-} finally { Pop-Location }
+} finally {
+    $env:NIKAO_FORK_VERSION = $previousForkVersion
+    Pop-Location
+}

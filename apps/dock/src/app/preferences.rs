@@ -186,8 +186,10 @@ impl App {
         crate::appearance::set(config.appearance);
         crate::appearance::set_glass_levels(config.glass_transparency, config.glass_blur);
         crate::spotlight::set_mode(config.search_mode);
+        let genie_enabled = config.genie && !self.config.genie;
         if !config.genie {
             self.restore_transitions();
+            self.last_rects.clear();
             self.snapshots.clear();
         }
         let hiding_changed = config.auto_hide != self.config.auto_hide
@@ -203,7 +205,7 @@ impl App {
         }
         // Updates may have been turned on or off.
         self.schedule_update();
-        if workspaces_changed {
+        if workspaces_changed || genie_enabled {
             self.sync()?;
         }
         self.sync_thumbnails();

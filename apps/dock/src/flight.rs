@@ -74,11 +74,11 @@ use windows::{
         SpriteVisual,
     },
     Win32::{
-        Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM},
+        Foundation::{HWND, LPARAM, LRESULT, RECT, SIZE, WPARAM},
         Graphics::Dwm::{
-            DWM_THUMBNAIL_PROPERTIES, DWM_TNP_OPACITY, DWM_TNP_RECTDESTINATION,
-            DWM_TNP_SOURCECLIENTAREAONLY, DWM_TNP_VISIBLE, DwmRegisterThumbnail,
-            DwmUnregisterThumbnail, DwmUpdateThumbnailProperties,
+            DWM_THUMBNAIL_PROPERTIES, DWM_TNP_OPACITY, DWM_TNP_RECTDESTINATION, DWM_TNP_RECTSOURCE,
+            DWM_TNP_SOURCECLIENTAREAONLY, DWM_TNP_VISIBLE, DwmQueryThumbnailSourceSize,
+            DwmRegisterThumbnail, DwmUnregisterThumbnail, DwmUpdateThumbnailProperties,
         },
         System::{LibraryLoader::GetModuleHandleW, WinRT::Composition::ICompositorDesktopInterop},
         UI::WindowsAndMessaging::{
@@ -345,6 +345,24 @@ fn is_empty(rect: RECT) -> bool {
     rect.right <= rect.left || rect.bottom <= rect.top
 }
 
+/// Crop resize margins when DWM exposes the full window as its source.
+/// Some windows already expose only the visible frame.
+fn thumbnail_crop(whole: RECT, frame: RECT, source: SIZE) -> Option<RECT> {
+    if whole == frame
+        || source.cx != whole.right - whole.left
+        || source.cy != whole.bottom - whole.top
+        || intersect(whole, frame) != frame
+    {
+        return None;
+    }
+    Some(RECT {
+        left: frame.left - whole.left,
+        top: frame.top - whole.top,
+        right: frame.right - whole.left,
+        bottom: frame.bottom - whole.top,
+    })
+}
+
 /// Averages each 2×2 block of pixels into one.
 fn halved(image: &IconImage) -> IconImage {
     let (width, height) = ((image.width / 2).max(1), (image.height / 2).max(1));
@@ -601,14 +619,12 @@ fn local(rect: RECT, screen: RECT) -> Edges {
 }
 
 impl Flight {
-    /// Puts up the stand-in of a window that is being minimized, where it was
-    /// (`from`, a screen rectangle; `screen` is the monitor the overlay
-    /// covers). The flight takes off once [`Flight::aim`] gives it its slot.
+    /// Puts up the stand-in on the monitor the overlay covers and waits for
+    /// [`Flight::aim`] to set its slot.
     ///
-    /// `from` is the whole window, invisible borders included, where its live
-    /// thumbnail goes; `frame` is the part that showed on screen, which the
-    /// genie copies and flies (the work area for a maximized window, so no
-    /// strip of the menu bar or desktop around it comes along).
+    /// `from` includes the invisible resize margins, used to identify whether
+    /// the thumbnail needs cropping. `frame` is what the user actually saw:
+    /// both the stand-in and the first frame of the genie use this rectangle.
     pub fn start(
         gfx: &Gfx,
         hwnd: isize,
@@ -654,24 +670,36 @@ impl Flight {
                 let _ = DestroyWindow(overlay);
                 return None;
             };
-            // The stand-in: the whole window, exactly where it was.
-            let properties = DWM_THUMBNAIL_PROPERTIES {
+            // Draw the stand-in at the visible frame's original size.
+            let mut properties = DWM_THUMBNAIL_PROPERTIES {
                 dwFlags: DWM_TNP_RECTDESTINATION
                     | DWM_TNP_VISIBLE
                     | DWM_TNP_OPACITY
                     | DWM_TNP_SOURCECLIENTAREAONLY,
                 rcDestination: RECT {
-                    left: from.left - screen.left,
-                    top: from.top - screen.top,
-                    right: from.right - screen.left,
-                    bottom: from.bottom - screen.top,
+                    left: frame.left - screen.left,
+                    top: frame.top - screen.top,
+                    right: frame.right - screen.left,
+                    bottom: frame.bottom - screen.top,
                 },
                 opacity: 255,
                 fVisible: true.into(),
                 fSourceClientAreaOnly: false.into(),
                 ..Default::default()
             };
-            let _ = DwmUpdateThumbnailProperties(thumbnail, &properties);
+            if let Some(crop) = DwmQueryThumbnailSourceSize(thumbnail)
+                .ok()
+                .and_then(|size| thumbnail_crop(from, frame, size))
+            {
+                properties.dwFlags |= DWM_TNP_RECTSOURCE;
+                properties.rcSource = crop;
+            }
+            if DwmUpdateThumbnailProperties(thumbnail, &properties).is_err() {
+                let _ = DwmUnregisterThumbnail(thumbnail);
+                let _ = DestroyWindow(stand);
+                let _ = DestroyWindow(overlay);
+                return None;
+            }
             let _ = ShowWindow(overlay, SW_SHOWNOACTIVATE);
             let _ = SetWindowPos(
                 stand,
@@ -1016,6 +1044,35 @@ mod tests {
             right,
             bottom,
         }
+    }
+
+    #[test]
+    fn the_stand_in_crops_resize_margins_only_when_dwm_includes_them() {
+        let whole = RECT {
+            left: 92,
+            top: 100,
+            right: 908,
+            bottom: 708,
+        };
+        let frame = RECT {
+            left: 100,
+            top: 100,
+            right: 900,
+            bottom: 700,
+        };
+        assert_eq!(
+            thumbnail_crop(whole, frame, SIZE { cx: 816, cy: 608 }),
+            Some(RECT {
+                left: 8,
+                top: 0,
+                right: 808,
+                bottom: 600
+            }),
+        );
+        assert_eq!(
+            thumbnail_crop(whole, frame, SIZE { cx: 800, cy: 600 }),
+            None
+        );
     }
 
     /// The frame shown through `matrix` puts every point back where it was

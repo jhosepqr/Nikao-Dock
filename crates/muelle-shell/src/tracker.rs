@@ -32,10 +32,10 @@ use windows::{
                 EnumWindows, GW_OWNER, GWL_EXSTYLE, GWL_STYLE, GetClassNameW, GetClientRect,
                 GetForegroundWindow, GetWindow, GetWindowLongW, GetWindowPlacement, GetWindowRect,
                 GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindow,
-                IsWindowVisible, IsZoomed, PostMessageW, SM_CXPADDEDBORDER, SM_CXSIZEFRAME,
-                SWP_ASYNCWINDOWPOS, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE,
-                SetWindowPos, WINDOWPLACEMENT, WM_CLOSE, WPF_RESTORETOMAXIMIZED, WS_EX_APPWINDOW,
-                WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_MAXIMIZE, WS_THICKFRAME,
+                IsWindowVisible, IsZoomed, PostMessageW, SWP_ASYNCWINDOWPOS, SWP_NOACTIVATE,
+                SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE, SetWindowPos, WINDOWPLACEMENT, WM_CLOSE,
+                WPF_RESTORETOMAXIMIZED, WS_EX_APPWINDOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
+                WS_EX_TOPMOST, WS_MAXIMIZE,
             },
         },
     },
@@ -132,35 +132,6 @@ pub fn title(hwnd: isize) -> String {
     String::from_utf16_lossy(&buffer[..len.max(0) as usize])
 }
 
-/// Restored-state rectangle of a window, also valid while it is minimized.
-/// Workspace coordinates match screen coordinates here: the work area starts at
-/// the screen's top-left corner because the dock reserves only the bottom edge.
-#[must_use]
-pub fn normal_rect(hwnd: isize) -> Option<RECT> {
-    let mut placement = WINDOWPLACEMENT {
-        length: size_of::<WINDOWPLACEMENT>() as u32,
-        ..Default::default()
-    };
-    // SAFETY: The structure has its size initialized and lives for the call.
-    unsafe { GetWindowPlacement(HWND(hwnd as *mut _), &mut placement) }.ok()?;
-    // Placement uses workspace coordinates, whose origin is the top-left
-    // corner of the work area: below the menu bar when it is shown.
-    let (dx, dy) = crate::system::primary_monitor().map_or((0, 0), |monitor| {
-        (
-            monitor.work_left - monitor.screen.left,
-            monitor.work_top - monitor.screen.top,
-        )
-    });
-    let local = placement.rcNormalPosition;
-    let rect = RECT {
-        left: local.left + dx,
-        top: local.top + dy,
-        right: local.right + dx,
-        bottom: local.bottom + dy,
-    };
-    (rect.right > rect.left && rect.bottom > rect.top).then_some(rect)
-}
-
 /// Where a window is on screen now, and whether it is maximized; `None`
 /// while it is minimized. Taken whenever the dock looks at its windows, so a
 /// minimize knows where a snapped window was: Windows keeps a snapped
@@ -185,8 +156,29 @@ pub fn screen_rect(hwnd: isize) -> Option<(RECT, bool)> {
 /// while it is minimized.
 #[must_use]
 pub fn visible_rect(hwnd: isize) -> Option<RECT> {
-    let window = HWND(hwnd as *mut _);
     let (whole, _) = screen_rect(hwnd)?;
+    Some(visible_frame(HWND(hwnd as *mut _)).unwrap_or(whole))
+}
+
+/// Geometry recorded before Windows moves a minimized window off screen.
+#[derive(Clone, Copy)]
+pub struct WindowBounds {
+    pub whole: RECT,
+    pub visible: RECT,
+    pub maximized: bool,
+}
+
+pub fn window_bounds(hwnd: isize) -> Option<WindowBounds> {
+    let (whole, maximized) = screen_rect(hwnd)?;
+    let visible = visible_frame(HWND(hwnd as *mut _))?;
+    covers(whole, visible).then_some(WindowBounds {
+        whole,
+        visible,
+        maximized,
+    })
+}
+
+fn visible_frame(window: HWND) -> Option<RECT> {
     let mut rect = RECT::default();
     // SAFETY: `rect` is a valid output of the attribute's size.
     let framed = unsafe {
@@ -197,7 +189,7 @@ pub fn visible_rect(hwnd: isize) -> Option<RECT> {
             size_of::<RECT>() as u32,
         )
     };
-    Some(if framed.is_ok() { rect } else { whole })
+    (framed.is_ok() && rect.right > rect.left && rect.bottom > rect.top).then_some(rect)
 }
 
 /// `true` while `hwnd` is shown maximized on the monitor whose bounds are
@@ -228,20 +220,15 @@ pub fn is_maximized_on(hwnd: isize, screen: RECT) -> bool {
     }
 }
 
-/// Where a window that has just started minimizing was on screen, which by
-/// then it no longer says itself: it is already at -32000.
-///
-/// Returns the whole window, invisible resize borders included (where its
-/// live thumbnail goes), and the part that was visible on screen (what the
-/// genie copies and flies). `last_seen` is the [`screen_rect`] taken while
-/// it was not maximized, if any.
-///
-/// A maximized window fills its monitor's work area, plus its borders: its
-/// "normal" rectangle is the smaller one it returns to when un-maximized,
-/// and flying from it made the genie jump first.
+/// Both physical rectangles at the start of a minimize. The window may still
+/// be visible when the event arrives. Once Windows has moved it off screen,
+/// use its last measured bounds if they match the state it will restore to.
 #[must_use]
-pub fn rect_before_minimize(hwnd: isize, last_seen: Option<RECT>) -> Option<(RECT, RECT)> {
-    use windows::Win32::UI::HiDpi::{GetDpiForWindow, GetSystemMetricsForDpi};
+pub fn rect_before_minimize(hwnd: isize, last_seen: Option<WindowBounds>) -> Option<(RECT, RECT)> {
+    if let Some(bounds) = window_bounds(hwnd) {
+        return Some((bounds.whole, bounds.visible));
+    }
+    let bounds = last_seen?;
     let window = HWND(hwnd as *mut _);
     let mut placement = WINDOWPLACEMENT {
         length: size_of::<WINDOWPLACEMENT>() as u32,
@@ -249,39 +236,12 @@ pub fn rect_before_minimize(hwnd: isize, last_seen: Option<RECT>) -> Option<(REC
     };
     // SAFETY: The structure has its size initialized and lives for the call.
     unsafe { GetWindowPlacement(window, &mut placement) }.ok()?;
-    if placement.flags.0 & WPF_RESTORETOMAXIMIZED.0 == 0 {
-        let rect = last_seen.or_else(|| normal_rect(hwnd))?;
-        return Some((rect, rect));
-    }
-    // SAFETY: Read-only monitor, DPI and style queries.
-    unsafe {
-        let monitor = MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST);
-        let mut info = MONITORINFO {
-            cbSize: size_of::<MONITORINFO>() as u32,
-            ..Default::default()
-        };
-        if !GetMonitorInfoW(monitor, &mut info).as_bool() {
-            return None;
-        }
-        let work = info.rcWork;
-        // Windows maximizes a resizable window with its borders past the
-        // work area's edges, so that only the window itself shows.
-        let resizable = GetWindowLongW(window, GWL_STYLE) as u32 & WS_THICKFRAME.0 != 0;
-        let border = if resizable {
-            let dpi = GetDpiForWindow(window);
-            GetSystemMetricsForDpi(SM_CXSIZEFRAME, dpi)
-                + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi)
-        } else {
-            0
-        };
-        let whole = RECT {
-            left: work.left - border,
-            top: work.top - border,
-            right: work.right + border,
-            bottom: work.bottom + border,
-        };
-        Some((whole, work))
-    }
+    let maximized = if unsafe { IsIconic(window) }.as_bool() {
+        placement.flags.0 & WPF_RESTORETOMAXIMIZED.0 != 0
+    } else {
+        unsafe { IsZoomed(window) }.as_bool()
+    };
+    (bounds.maximized == maximized).then_some((bounds.whole, bounds.visible))
 }
 
 #[must_use]
@@ -740,6 +700,7 @@ pub fn request_close_window(hwnd: isize) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use windows::Win32::UI::WindowsAndMessaging::WS_THICKFRAME;
 
     #[test]
     fn workspace_cloaking_is_opt_in_without_exposing_app_or_inherited_cloaks() {
