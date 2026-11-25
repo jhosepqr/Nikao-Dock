@@ -4,7 +4,7 @@ use serde::Serialize;
 
 use windows::{
     Win32::{
-        Foundation::{ERROR_SUCCESS, HLOCAL, LPARAM, LocalFree, POINT, RECT, STATUS_SUCCESS},
+        Foundation::{ERROR_SUCCESS, HLOCAL, HWND, LPARAM, LocalFree, POINT, RECT, STATUS_SUCCESS},
         Graphics::Gdi::{
             EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITOR_DEFAULTTONULL,
             MONITOR_DEFAULTTOPRIMARY, MONITORINFO, MonitorFromPoint,
@@ -23,8 +23,11 @@ use windows::{
         },
         UI::{
             HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI},
+            Input::KeyboardAndMouse::GetKeyboardLayoutList,
             Shell::{FOLDERID_Downloads, KF_FLAG_DEFAULT, SHGetKnownFolderPath},
-            WindowsAndMessaging::{SPI_GETCLIENTAREAANIMATION, SystemParametersInfoW},
+            WindowsAndMessaging::{
+                GetForegroundWindow, SPI_GETCLIENTAREAANIMATION, SystemParametersInfoW,
+            },
         },
     },
     core::{BOOL, GUID, PCWSTR, s, w},
@@ -107,37 +110,43 @@ pub fn energy_saver_on() -> bool {
 
 /// The input language of the window in front as two capital letters
 /// ("ES", "EN"), or `None` with a single language installed: the Windows
-/// taskbar only shows its language indicator when there is a choice. Keep the
-/// previous reading while the tray owns focus or Windows is switching windows.
+/// taskbar only shows its language indicator when there is a choice.
 #[must_use]
-pub fn input_language(previous: Option<&str>) -> Option<String> {
-    use windows::Win32::{
-        Globalization::LCIDToLocaleName, UI::Input::KeyboardAndMouse::GetKeyboardLayoutList,
-        UI::WindowsAndMessaging::GetForegroundWindow,
-    };
-    // SAFETY: Read-only queries; `name` is a valid buffer for the locale name.
+pub fn input_language() -> Option<String> {
+    // SAFETY: Read-only queries, with no output buffer for the layout count.
     unsafe {
-        let front = GetForegroundWindow();
-        if front.is_invalid() || crate::launcher::is_tray_window(front) {
-            return previous.map(str::to_owned);
-        }
-        if GetKeyboardLayoutList(None) < 2 {
-            return None;
-        }
-        // Each thread has its own layout: the one that matters is in front.
-        let Some(context) = crate::keyboard::Context::for_window(front) else {
-            return previous.map(str::to_owned);
-        };
-        let language = (context.layout as usize & 0xFFFF) as u32;
-        let mut name = [0u16; 85];
-        let len = LCIDToLocaleName(language, Some(&mut name), 0);
-        if len <= 1 {
-            return previous.map(str::to_owned);
-        }
-        let tag = String::from_utf16_lossy(&name[..len as usize - 1]);
-        let code = tag.split('-').next()?.to_uppercase();
-        (!code.is_empty()).then_some(code)
+        (GetKeyboardLayoutList(None) >= 2)
+            .then(|| input_language_of(GetForegroundWindow()))
+            .flatten()
     }
+}
+
+/// Keeps the menu bar's previous reading while the tray owns focus or Windows
+/// is switching windows.
+#[must_use]
+pub fn input_language_for_menu_bar(previous: Option<&str>) -> Option<String> {
+    // SAFETY: Read-only queries, with no output buffer for the layout count.
+    let front = unsafe { GetForegroundWindow() };
+    if front.is_invalid() || crate::launcher::is_tray_window(front) {
+        return previous.map(str::to_owned);
+    }
+    if unsafe { GetKeyboardLayoutList(None) } < 2 {
+        return None;
+    }
+    input_language_of(front).or_else(|| previous.map(str::to_owned))
+}
+
+fn input_language_of(window: HWND) -> Option<String> {
+    use windows::Win32::Globalization::LCIDToLocaleName;
+    let context = crate::keyboard::Context::for_window(window)?;
+    let language = (context.layout as usize & 0xFFFF) as u32;
+    let mut name = [0u16; 85];
+    // SAFETY: `name` is a valid output buffer for the locale name.
+    let len = unsafe { LCIDToLocaleName(language, Some(&mut name), 0) };
+    let len = usize::try_from(len).ok()?.checked_sub(1)?;
+    let tag = String::from_utf16_lossy(name.get(..len)?);
+    let code = tag.split('-').next()?.to_uppercase();
+    (!code.is_empty()).then_some(code)
 }
 
 /// `true` on Windows 11 (build 22000 or later), `false` on Windows 10.

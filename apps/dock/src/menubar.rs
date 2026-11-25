@@ -1163,7 +1163,7 @@ impl MenuBar {
             surface,
             appbar: AppBar::register(hwnd, APPBAR_CALLBACK),
             app_name: String::new(),
-            input_language: system::input_language(None),
+            input_language: system::input_language_for_menu_bar(None),
             look: None,
             zones: Vec::new(),
             visible: true,
@@ -1226,12 +1226,12 @@ impl MenuBar {
             return Ok(());
         }
         name.clone_into(&mut self.app_name);
-        self.input_language = system::input_language(self.input_language.as_deref());
+        self.input_language = system::input_language_for_menu_bar(self.input_language.as_deref());
         self.refresh(gfx)
     }
 
     pub fn input_language_changed(&mut self, gfx: &Gfx) -> Result<()> {
-        let input = system::input_language(self.input_language.as_deref());
+        let input = system::input_language_for_menu_bar(self.input_language.as_deref());
         if self.input_language == input {
             return Ok(());
         }
