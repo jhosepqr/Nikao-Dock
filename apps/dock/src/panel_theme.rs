@@ -20,7 +20,7 @@ use windows::{
         Foundation::{COLORREF, HWND},
         Graphics::Dwm::{
             DWMWA_BORDER_COLOR, DWMWA_USE_HOSTBACKDROPBRUSH, DWMWA_USE_IMMERSIVE_DARK_MODE,
-            DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND, DwmSetWindowAttribute,
+            DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_DONOTROUND, DWMWCP_ROUND, DwmSetWindowAttribute,
         },
         System::Threading::{AttachThreadInput, GetCurrentThreadId},
         UI::{
@@ -119,47 +119,84 @@ pub struct GlassTokens {
     pub light: bool,
     /// Host backdrop blur is on. False draws an opaque card.
     pub glass: bool,
+    /// Host-backdrop blur opacity in `0..=100`. Clear iOS uses a soft blur
+    /// rather than heavy frosting.
+    pub backdrop_blur: u8,
     pub tint: Rgba,
+    /// Static top specular highlight (fades to transparent over the top lip).
+    pub sheen: Rgba,
     pub rim: Rgba,
+    /// Diagonal 1px luminous hairline rim alpha stops (`[0.0, 0.35, 0.65, 1.0]`).
+    pub rim_stops: [u8; 4],
     pub text: Rgba,
     pub secondary: Rgba,
     pub link: Rgba,
+    /// Optional 1px static drop shadow baked into text sprites on dark glass.
+    pub text_shadow: Option<Rgba>,
+    /// Subtle glass action row fill (e.g. battery settings pill).
+    pub row_fill: Rgba,
+    pub row_border: Rgba,
+    /// Hover or selected glass row fill.
     pub select: Rgba,
+    pub select_border: Rgba,
     /// Search field fill. Always opaque: the EDIT control paints over it.
     pub field: Rgba,
     pub field_border: Rgba,
 }
 
 impl GlassTokens {
-    /// Light glass. Placeholder until the frontend pass replaces it.
+    /// Clear Liquid Glass for Windows light app theme: bright translucent
+    /// glass, soft blur, luminous top lip and 1px hairline rim, crisp dark ink.
     pub const LIGHT_GLASS: Self = Self {
         light: true,
         glass: true,
-        // menu.rs `popup_tint` light glass: 246,246,248 at alpha 215.
-        tint: Rgba::rgb(246, 246, 248, 215),
-        rim: Rgba::rgb(255, 255, 255, 220),
-        text: Rgba::rgb(26, 26, 28, 255),
-        secondary: Rgba::rgb(70, 70, 78, 255),
-        link: Rgba::rgb(0, 90, 170, 255),
-        select: Rgba::rgb(0, 0, 0, 28),
-        field: Rgba::rgb(255, 255, 255, 255),
-        field_border: Rgba::rgb(255, 255, 255, 190),
+        backdrop_blur: 48,
+        tint: Rgba::rgb(248, 250, 254, 182),
+        sheen: Rgba::rgb(255, 255, 255, 150),
+        rim: Rgba::rgb(255, 255, 255, 225),
+        rim_stops: [255, 175, 155, 245],
+        text: Rgba::rgb(14, 16, 22, 255),
+        secondary: Rgba::rgb(46, 50, 60, 255),
+        link: Rgba::rgb(0, 54, 118, 255),
+        text_shadow: None,
+        row_fill: Rgba::rgb(0, 0, 0, 10),
+        row_border: Rgba::rgb(0, 0, 0, 26),
+        select: Rgba::rgb(0, 0, 0, 20),
+        select_border: Rgba::rgb(0, 0, 0, 48),
+        field: Rgba::rgb(246, 248, 252, 255),
+        field_border: Rgba::rgb(0, 0, 0, 36),
     };
 
-    /// Dark glass. Placeholder until the frontend pass replaces it.
+    /// Clear Liquid Glass for Windows dark app theme: dark transparent glass,
+    /// soft blur, subtle top specular lip and luminous 1px hairline rim.
     pub const DARK_GLASS: Self = Self {
         light: false,
         glass: true,
-        // menu.rs `popup_tint` dark glass: 38,38,40 at alpha 175.
-        tint: Rgba::rgb(38, 38, 40, 175),
-        rim: Rgba::rgb(255, 255, 255, 96),
-        text: Rgba::rgb(245, 245, 247, 255),
-        secondary: Rgba::rgb(196, 196, 204, 255),
-        link: Rgba::rgb(140, 200, 255, 255),
-        select: Rgba::rgb(255, 255, 255, 36),
-        field: Rgba::rgb(28, 28, 32, 255),
-        field_border: Rgba::rgb(255, 255, 255, 56),
+        backdrop_blur: 48,
+        tint: Rgba::rgb(10, 12, 18, 178),
+        sheen: Rgba::rgb(255, 255, 255, 76),
+        rim: Rgba::rgb(255, 255, 255, 118),
+        rim_stops: [210, 86, 68, 172],
+        text: Rgba::rgb(255, 255, 255, 255),
+        secondary: Rgba::rgb(224, 229, 238, 255),
+        link: Rgba::rgb(210, 238, 255, 255),
+        text_shadow: Some(Rgba::rgb(0, 0, 0, 120)),
+        row_fill: Rgba::rgb(255, 255, 255, 14),
+        row_border: Rgba::rgb(255, 255, 255, 52),
+        select: Rgba::rgb(255, 255, 255, 22),
+        select_border: Rgba::rgb(255, 255, 255, 96),
+        field: Rgba::rgb(20, 22, 30, 255),
+        field_border: Rgba::rgb(255, 255, 255, 82),
     };
+
+    #[must_use]
+    pub fn backdrop_opacity(self) -> f32 {
+        if self.glass {
+            f32::from(self.backdrop_blur.min(100)) / 100.0
+        } else {
+            0.0
+        }
+    }
 
     /// One registry read for the app theme, plus the transparency switches.
     /// Called when a panel opens, not while it is closed.
@@ -185,17 +222,25 @@ impl GlassTokens {
     }
 
     fn solid(palette: Palette) -> Self {
+        let border = Rgba::from_color(palette.border, 255);
         Self {
             light: palette.light,
             glass: false,
+            backdrop_blur: 0,
             tint: Rgba::from_color(palette.fill, 255),
-            rim: Rgba::from_color(palette.border, 255),
+            sheen: Rgba::rgb(255, 255, 255, 0),
+            rim: border,
+            rim_stops: [0, 0, 0, 0],
             text: Rgba::from_color(palette.text, 255),
             secondary: Rgba::from_color(palette.secondary, 255),
             link: Rgba::from_color(palette.link, 255),
+            text_shadow: None,
+            row_fill: Rgba::from_color(palette.fill, 255),
+            row_border: border,
             select: Rgba::from_color(palette.select, 255),
+            select_border: border,
             field: Rgba::from_color(palette.edit, 255),
-            field_border: Rgba::from_color(palette.border, 255),
+            field_border: border,
         }
     }
 }
@@ -205,9 +250,14 @@ impl GlassTokens {
 const DWM_BORDER_NONE: COLORREF = COLORREF(0xFFFF_FFFE);
 
 /// Rounded corners and the title-bar theme. Host backdrop only while glass
-/// is on. No frame extension: GDI on an extended frame is drawn with no alpha.
+/// is on. Glass cards clip their own larger corner radius in composition, so
+/// DWM does not clamp them to 8px or paint a rectangular border behind them.
 pub fn style_window(hwnd: HWND, tokens: GlassTokens) {
-    let corner = DWMWCP_ROUND.0;
+    let corner = if tokens.glass {
+        DWMWCP_DONOTROUND.0
+    } else {
+        DWMWCP_ROUND.0
+    };
     let dark = BOOL::from(!tokens.light);
     let host = BOOL::from(tokens.glass);
     let border = if tokens.glass {
@@ -335,6 +385,70 @@ mod tests {
         let sum = |color: Rgba| u16::from(color.r) + u16::from(color.g) + u16::from(color.b);
         assert!(sum(light.text) < sum(light.tint));
         assert!(sum(dark.text) > sum(dark.tint));
+    }
+
+    fn composite(fg: Rgba, bg: [f32; 3]) -> [f32; 3] {
+        let a = f32::from(fg.a) / 255.0;
+        [
+            f32::from(fg.r) * a + bg[0] * (1.0 - a),
+            f32::from(fg.g) * a + bg[1] * (1.0 - a),
+            f32::from(fg.b) * a + bg[2] * (1.0 - a),
+        ]
+    }
+
+    fn luminance_rgb(rgb: [f32; 3]) -> f32 {
+        let channel = |raw: f32| {
+            let value = raw / 255.0;
+            if value <= 0.039_28 {
+                value / 12.92
+            } else {
+                ((value + 0.055) / 1.055).powf(2.4)
+            }
+        };
+        0.2126 * channel(rgb[0]) + 0.7152 * channel(rgb[1]) + 0.0722 * channel(rgb[2])
+    }
+
+    fn contrast_rgb(fg: Rgba, bg: [f32; 3]) -> f32 {
+        let a = luminance_rgb([f32::from(fg.r), f32::from(fg.g), f32::from(fg.b)]);
+        let b = luminance_rgb(bg);
+        (a.max(b) + 0.05) / (a.min(b) + 0.05)
+    }
+
+    #[test]
+    fn glass_tokens_stay_readable_over_white_and_black_wallpapers() {
+        for tokens in [GlassTokens::LIGHT_GLASS, GlassTokens::DARK_GLASS] {
+            assert!(tokens.glass);
+            assert!(tokens.backdrop_opacity() > 0.0 && tokens.backdrop_opacity() < 1.0);
+            assert!(tokens.sheen.a > 0);
+            assert_eq!(tokens.field.a, 255);
+            for wallpaper in [[255.0, 255.0, 255.0], [0.0, 0.0, 0.0]] {
+                let card = composite(tokens.tint, wallpaper);
+                let row = composite(tokens.row_fill, card);
+                let select = composite(tokens.select, card);
+                let field = [
+                    f32::from(tokens.field.r),
+                    f32::from(tokens.field.g),
+                    f32::from(tokens.field.b),
+                ];
+                for surface in [card, row, select, field] {
+                    assert!(
+                        contrast_rgb(tokens.text, surface) >= 5.5,
+                        "light {} wp {wallpaper:?}",
+                        tokens.light
+                    );
+                    assert!(
+                        contrast_rgb(tokens.secondary, surface) >= 4.5,
+                        "light {} wp {wallpaper:?}",
+                        tokens.light
+                    );
+                    assert!(
+                        contrast_rgb(tokens.link, surface) >= 4.5,
+                        "light {} wp {wallpaper:?}",
+                        tokens.light
+                    );
+                }
+            }
+        }
     }
 
     #[test]

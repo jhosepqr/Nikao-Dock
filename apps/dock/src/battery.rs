@@ -23,12 +23,12 @@ use windows::{
         UI::{
             Input::KeyboardAndMouse::{VIRTUAL_KEY, VK_ESCAPE, VK_RETURN},
             WindowsAndMessaging::{
-                CS_DROPSHADOW, CreateWindowExW, DefWindowProcW, HWND_TOPMOST, IDC_ARROW,
-                IsWindowVisible, LoadCursorW, PBT_APMPOWERSTATUSCHANGE, PostMessageW,
-                RegisterClassW, SW_HIDE, SW_SHOWNA, SWP_NOACTIVATE, SetWindowPos, ShowWindow,
-                WA_INACTIVE, WM_ACTIVATE, WM_APP, WM_DESTROY, WM_ERASEBKGND, WM_KEYDOWN,
-                WM_LBUTTONUP, WM_MOUSEMOVE, WM_POWERBROADCAST, WNDCLASSW, WS_CLIPCHILDREN,
-                WS_EX_NOREDIRECTIONBITMAP, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
+                CreateWindowExW, DefWindowProcW, HWND_TOPMOST, IDC_ARROW, IsWindowVisible,
+                LoadCursorW, PBT_APMPOWERSTATUSCHANGE, PostMessageW, RegisterClassW, SW_HIDE,
+                SW_SHOWNA, SWP_NOACTIVATE, SetWindowPos, ShowWindow, WA_INACTIVE, WM_ACTIVATE,
+                WM_APP, WM_DESTROY, WM_ERASEBKGND, WM_KEYDOWN, WM_LBUTTONUP, WM_MOUSEMOVE,
+                WM_POWERBROADCAST, WNDCLASSW, WS_CLIPCHILDREN, WS_EX_NOREDIRECTIONBITMAP,
+                WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
             },
         },
     },
@@ -215,7 +215,6 @@ fn create(gfx: &Gfx, anchor: POINT) -> Result<(), windows::core::Error> {
     let instance = unsafe { GetModuleHandleW(None)? };
     unsafe {
         let _ = RegisterClassW(&WNDCLASSW {
-            style: CS_DROPSHADOW,
             lpfnWndProc: Some(panel_proc),
             hInstance: instance.into(),
             hCursor: LoadCursorW(None, IDC_ARROW)?,
@@ -264,16 +263,16 @@ fn place(panel: &mut Panel) {
     let anchor = panel.anchor;
     let monitor = system::monitor_at(anchor).or_else(system::primary_monitor);
     let scale = monitor.map(|monitor| monitor.scale).unwrap_or(1.0);
-    let pad = px(scale, 16.0);
+    let pad = px(scale, 18.0);
     let percent_h = if panel.lines.percent.is_some() {
-        px(scale, 40.0)
+        px(scale, 46.0)
     } else {
         0
     };
     let row_h = px(scale, 24.0).max(1);
     let link_h = px(scale, 36.0).max(1);
-    let gap = px(scale, 8.0);
-    let width = px(scale, 300.0).max(220);
+    let gap = px(scale, 12.0);
+    let width = px(scale, 304.0).max(228);
     let height = pad + percent_h + panel.lines.rows.len() as i32 * row_h + gap + link_h + pad;
     panel.scale = scale;
     panel.width = width;
@@ -413,6 +412,7 @@ fn render(panel: &mut Panel) {
     };
     if let Err(error) = scene.paint(&panel.gfx, &canvas, |surface| {
         let tokens = surface.tokens();
+        let thickness = scale.round().max(1.0);
         let mut top = pad;
         if let Some(percent) = &lines.percent {
             surface.text(
@@ -423,18 +423,18 @@ fn render(panel: &mut Panel) {
                     height: percent_h,
                     max_width: width - pad * 2.0,
                 },
-                22.0,
+                32.0,
                 true,
                 tokens.text,
             )?;
             top += percent_h;
         }
         for (index, row) in lines.rows.iter().enumerate() {
-            // The charge state reads first; the details are secondary.
-            let color = if index == 0 {
-                tokens.text
+            // Clear widget hierarchy: primary charge state first, muted details below.
+            let (font, bold, color) = if index == 0 {
+                (14.0, true, tokens.text)
             } else {
-                tokens.secondary
+                (12.5, false, tokens.secondary)
             };
             surface.text(
                 row,
@@ -444,33 +444,36 @@ fn render(panel: &mut Panel) {
                     height: row_h,
                     max_width: width - pad * 2.0,
                 },
-                13.0,
-                false,
+                font,
+                bold,
                 color,
             )?;
         }
-        if hot {
-            surface.fill(
-                tokens.select,
-                Round {
-                    x: pad / 2.0,
-                    y: link_top,
-                    w: width - pad,
-                    h: link_height,
-                    radius: 6.0 * scale,
-                },
-            )?;
-        }
+        let pill = Round {
+            x: pad,
+            y: link_top,
+            w: width - pad * 2.0,
+            h: link_height,
+            radius: 10.0 * scale,
+        };
+        let (fill, border) = if hot {
+            (tokens.select, tokens.select_border)
+        } else {
+            (tokens.row_fill, tokens.row_border)
+        };
+        surface.fill(fill, pill)?;
+        surface.stroke(border, pill, thickness)?;
+        let inset = (12.0 * scale).round();
         surface.text(
             &lines.link,
             Line {
-                x: pad,
+                x: pad + inset,
                 top: link_top,
                 height: link_height,
-                max_width: width - pad * 2.0,
+                max_width: (width - (pad + inset) * 2.0).max(1.0),
             },
             13.0,
-            false,
+            true,
             tokens.link,
         )?;
         Ok(())

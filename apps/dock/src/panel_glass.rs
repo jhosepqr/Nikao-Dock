@@ -8,7 +8,7 @@ use anyhow::Result;
 use windows::{
     UI::{
         Color,
-        Composition::{Desktop::DesktopWindowTarget, VisualCollection},
+        Composition::{CompositionColorSpace, Desktop::DesktopWindowTarget, VisualCollection},
     },
     Win32::{Foundation::HWND, System::WinRT::Composition::ICompositorDesktopInterop},
     core::Interface,
@@ -16,10 +16,15 @@ use windows::{
 use windows_numerics::{Vector2, Vector3};
 
 use crate::{
-    gfx::Gfx,
+    gfx::{Gfx, TextStyle},
     menu,
     panel_theme::{GlassTokens, Rgba},
 };
+
+/// Corner radius of Liquid Glass drop-down cards (logical pixels).
+const CARD_RADIUS: f32 = 16.0;
+/// Where the static top specular highlight fades out (fraction of card height).
+const SHEEN_END: f32 = 0.18;
 
 /// The composition target for one open panel. Dropping it releases the tree.
 #[derive(Clone)]
@@ -83,32 +88,50 @@ impl Scene {
             return Ok(());
         }
         let compositor = &gfx.compositor;
+        let size = Vector2::new(canvas.width, canvas.height);
         let root = compositor.CreateContainerVisual()?;
-        root.SetSize(Vector2::new(canvas.width, canvas.height))?;
-        let layers = root.Children()?;
+        root.SetSize(size)?;
+        let card = compositor.CreateContainerVisual()?;
+        card.SetSize(size)?;
+        let radius = (CARD_RADIUS * canvas.scale)
+            .min(canvas.width / 2.0)
+            .min(canvas.height / 2.0);
+        if canvas.tokens.glass {
+            let outline = compositor.CreateRoundedRectangleGeometry()?;
+            outline.SetSize(size)?;
+            outline.SetCornerRadius(Vector2::new(radius, radius))?;
+            card.SetClip(&compositor.CreateGeometricClipWithGeometry(&outline)?)?;
+        }
+        let layers = card.Children()?;
         menu::draw_tinted_background(
             &layers,
             ui_color(canvas.tokens.tint),
             canvas.tokens.glass,
+            canvas.tokens.backdrop_opacity(),
             canvas.width,
             canvas.height,
         )?;
+        if canvas.tokens.glass && canvas.tokens.sheen.a > 0 {
+            draw_specular_sheen(&layers, canvas.tokens.sheen, canvas.width, canvas.height)?;
+        }
         let surface = Surface {
             gfx,
             layers: &layers,
             canvas,
         };
         draw(&surface)?;
+        root.Children()?.InsertAtTop(&card)?;
         if canvas.tokens.glass {
             let thickness = canvas.scale.round().max(1.0);
-            surface.stroke(
-                canvas.tokens.rim,
+            draw_diagonal_rim(
+                &root.Children()?,
+                canvas.tokens.rim_stops,
                 Round {
                     x: 0.0,
                     y: 0.0,
                     w: canvas.width,
                     h: canvas.height,
-                    radius: 8.0 * canvas.scale,
+                    radius,
                 },
                 thickness,
             )?;
@@ -129,13 +152,21 @@ impl Surface<'_> {
         if text.is_empty() || line.max_width < 1.0 {
             return Ok(());
         }
+        let shadow = self
+            .canvas
+            .tokens
+            .text_shadow
+            .map(|drop| [drop.r, drop.g, drop.b, drop.a]);
         let brush = self.gfx.text_brush_colored(
             text,
             self.canvas.scale,
-            font,
-            bold,
-            [color.r, color.g, color.b, color.a],
-            Some(line.max_width),
+            TextStyle {
+                size: font,
+                bold,
+                color: [color.r, color.g, color.b, color.a],
+                shadow,
+                max_width: Some(line.max_width),
+            },
         )?;
         let top = line.top + ((line.height - brush.height) / 2.0).round();
         menu::add_sprite(
@@ -187,6 +218,74 @@ impl Surface<'_> {
         self.layers.InsertAtTop(&visual)?;
         Ok(())
     }
+}
+
+fn draw_specular_sheen(
+    layers: &VisualCollection,
+    sheen: Rgba,
+    width: f32,
+    height: f32,
+) -> Result<()> {
+    let compositor = layers.Compositor()?;
+    let brush = compositor.CreateLinearGradientBrush()?;
+    brush.SetStartPoint(Vector2::new(0.0, 0.0))?;
+    brush.SetEndPoint(Vector2::new(0.0, 1.0))?;
+    let stops = brush.ColorStops()?;
+    stops.Append(&compositor.CreateColorGradientStopWithOffsetAndColor(0.0, ui_color(sheen))?)?;
+    stops.Append(&compositor.CreateColorGradientStopWithOffsetAndColor(
+        SHEEN_END * 0.3,
+        ui_color(Rgba {
+            a: sheen.a / 4,
+            ..sheen
+        }),
+    )?)?;
+    stops.Append(&compositor.CreateColorGradientStopWithOffsetAndColor(
+        SHEEN_END,
+        ui_color(Rgba { a: 0, ..sheen }),
+    )?)?;
+    menu::add_sprite(layers, brush.cast()?, 0.0, 0.0, width, height)
+}
+
+fn draw_diagonal_rim(
+    layers: &VisualCollection,
+    rim_stops: [u8; 4],
+    round: Round,
+    thickness: f32,
+) -> Result<()> {
+    if round.w <= thickness || round.h <= thickness {
+        return Ok(());
+    }
+    let compositor = layers.Compositor()?;
+    let brush = compositor.CreateLinearGradientBrush()?;
+    brush.SetStartPoint(Vector2::new(0.0, 0.0))?;
+    brush.SetEndPoint(Vector2::new(1.0, 1.0))?;
+    brush.SetInterpolationSpace(CompositionColorSpace::RgbLinear)?;
+    let stops = brush.ColorStops()?;
+    for (at, alpha) in [0.0, 0.35, 0.65, 1.0].into_iter().zip(rim_stops) {
+        stops.Append(&compositor.CreateColorGradientStopWithOffsetAndColor(
+            at,
+            Color {
+                A: alpha,
+                R: 255,
+                G: 255,
+                B: 255,
+            },
+        )?)?;
+    }
+    let geometry = compositor.CreateRoundedRectangleGeometry()?;
+    geometry.SetOffset(Vector2::new(thickness / 2.0, thickness / 2.0))?;
+    geometry.SetSize(Vector2::new(round.w - thickness, round.h - thickness))?;
+    let radius = (round.radius - thickness / 2.0).max(0.0);
+    geometry.SetCornerRadius(Vector2::new(radius, radius))?;
+    let shape = compositor.CreateSpriteShapeWithGeometry(&geometry)?;
+    shape.SetStrokeBrush(&brush)?;
+    shape.SetStrokeThickness(thickness)?;
+    let visual = compositor.CreateShapeVisual()?;
+    visual.SetOffset(Vector3::new(round.x, round.y, 0.0))?;
+    visual.SetSize(Vector2::new(round.w, round.h))?;
+    visual.Shapes()?.Append(&shape)?;
+    layers.InsertAtTop(&visual)?;
+    Ok(())
 }
 
 fn ui_color(color: Rgba) -> Color {

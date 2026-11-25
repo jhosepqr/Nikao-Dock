@@ -34,15 +34,15 @@ use windows::{
                 FOLDERID_CommonPrograms, FOLDERID_Programs, KF_FLAG_DEFAULT, SHGetKnownFolderPath,
             },
             WindowsAndMessaging::{
-                CS_DROPSHADOW, CallWindowProcW, CreateWindowExW, DefWindowProcW, DestroyWindow,
-                ES_AUTOHSCROLL, GWLP_WNDPROC, GetWindowTextW, HWND_TOPMOST, IDC_ARROW,
-                IsWindowVisible, LoadCursorW, PostMessageW, RegisterClassW, SW_HIDE, SW_SHOWNA,
-                SWP_NOACTIVATE, SendMessageW, SetWindowLongPtrW, SetWindowPos, SetWindowTextW,
-                ShowWindow, WA_INACTIVE, WINDOW_EX_STYLE, WINDOW_STYLE, WM_ACTIVATE, WM_APP,
-                WM_COMMAND, WM_CTLCOLOREDIT, WM_DESTROY, WM_ERASEBKGND, WM_KEYDOWN, WM_LBUTTONUP,
-                WM_MOUSEMOVE, WM_SETFOCUS, WM_SETFONT, WNDCLASSW, WNDPROC, WS_CHILD,
-                WS_CLIPCHILDREN, WS_EX_NOREDIRECTIONBITMAP, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
-                WS_POPUP, WS_TABSTOP, WS_VISIBLE,
+                CallWindowProcW, CreateWindowExW, DefWindowProcW, DestroyWindow, ES_AUTOHSCROLL,
+                GWLP_WNDPROC, GetWindowTextW, HWND_TOPMOST, IDC_ARROW, IsWindowVisible,
+                LoadCursorW, PostMessageW, RegisterClassW, SW_HIDE, SW_SHOWNA, SWP_NOACTIVATE,
+                SendMessageW, SetWindowLongPtrW, SetWindowPos, SetWindowTextW, ShowWindow,
+                WA_INACTIVE, WINDOW_EX_STYLE, WINDOW_STYLE, WM_ACTIVATE, WM_APP, WM_COMMAND,
+                WM_CTLCOLOREDIT, WM_DESTROY, WM_ERASEBKGND, WM_KEYDOWN, WM_LBUTTONUP, WM_MOUSEMOVE,
+                WM_SETFOCUS, WM_SETFONT, WNDCLASSW, WNDPROC, WS_CHILD, WS_CLIPCHILDREN,
+                WS_EX_NOREDIRECTIONBITMAP, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP, WS_TABSTOP,
+                WS_VISIBLE,
             },
         },
     },
@@ -256,7 +256,6 @@ fn create(gfx: &Gfx, anchor: POINT) -> Result<(), windows::core::Error> {
     let instance = unsafe { GetModuleHandleW(None)? };
     unsafe {
         let _ = RegisterClassW(&WNDCLASSW {
-            style: CS_DROPSHADOW,
             lpfnWndProc: Some(panel_proc),
             hInstance: instance.into(),
             hCursor: LoadCursorW(None, IDC_ARROW)?,
@@ -405,15 +404,15 @@ fn place(panel: &mut Panel, anchor: POINT, rows: usize) {
     let monitor = system::monitor_at(anchor).or_else(system::primary_monitor);
     let scale = monitor.map(|monitor| monitor.scale).unwrap_or(1.0);
     panel.scale = scale;
-    let pad = px(scale, 14.0);
-    let edit_height = px(scale, 34.0);
-    panel.row_top = pad + edit_height + px(scale, 8.0);
-    panel.row_height = px(scale, 36.0).max(1);
+    let pad = px(scale, 16.0);
+    let edit_height = px(scale, 38.0);
+    panel.row_top = pad + edit_height + px(scale, 10.0);
+    panel.row_height = px(scale, 38.0).max(1);
     let width = px(scale, 520.0).max(280);
     let body = if rows == 0 {
-        px(scale, 10.0)
+        px(scale, 6.0)
     } else {
-        rows as i32 * panel.row_height + px(scale, 10.0)
+        rows as i32 * panel.row_height + px(scale, 14.0)
     };
     let height = panel.row_top + body;
     panel.width = width;
@@ -707,21 +706,22 @@ fn render(panel: &mut Panel) {
             y: field.top as f32,
             w: (field.right - field.left) as f32,
             h: (field.bottom - field.top) as f32,
-            radius: 7.0 * scale,
+            radius: 10.0 * scale,
         };
         surface.fill(tokens.field, field_box)?;
         surface.stroke(tokens.field_border, field_box, thickness)?;
         let pad = (16.0 * scale).round();
+        let text_x = pad + (10.0 * scale).round();
         if let Some(notice) = notice {
             surface.text(
                 notice,
                 Line {
-                    x: pad,
+                    x: text_x,
                     top: row_top,
                     height: row_height,
-                    max_width: width - pad * 2.0,
+                    max_width: (width - text_x * 2.0).max(1.0),
                 },
-                15.0,
+                14.0,
                 false,
                 tokens.secondary,
             )?;
@@ -730,32 +730,33 @@ fn render(panel: &mut Panel) {
         for (index, hit) in hits.iter().enumerate() {
             let top = row_top + index as f32 * row_height;
             if selected == Some(index) {
-                surface.fill(
-                    tokens.select,
-                    Round {
-                        x: pad / 2.0,
-                        y: top,
-                        w: width - pad,
-                        h: row_height,
-                        radius: 6.0 * scale,
-                    },
-                )?;
+                let row_box = Round {
+                    x: pad,
+                    y: top,
+                    w: width - pad * 2.0,
+                    h: row_height,
+                    radius: 10.0 * scale,
+                };
+                surface.fill(tokens.select, row_box)?;
+                if tokens.glass {
+                    surface.stroke(tokens.select_border, row_box, thickness)?;
+                }
             }
             let label_right = if hit.detail.is_empty() {
-                width - pad
+                width - text_x
             } else {
-                width - (160.0 * scale).round()
+                width - (168.0 * scale).round()
             };
             surface.text(
                 &hit.label,
                 Line {
-                    x: pad,
+                    x: text_x,
                     top,
                     height: row_height,
-                    max_width: (label_right - pad).max(1.0),
+                    max_width: (label_right - text_x).max(1.0),
                 },
-                15.0,
-                false,
+                14.5,
+                selected == Some(index),
                 tokens.text,
             )?;
             if !hit.detail.is_empty() {
@@ -765,9 +766,9 @@ fn render(panel: &mut Panel) {
                         x: label_right,
                         top,
                         height: row_height,
-                        max_width: (width - pad - label_right).max(1.0),
+                        max_width: (width - text_x - label_right).max(1.0),
                     },
-                    15.0,
+                    12.5,
                     false,
                     tokens.secondary,
                 )?;

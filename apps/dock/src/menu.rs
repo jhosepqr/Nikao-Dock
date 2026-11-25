@@ -847,28 +847,31 @@ pub(crate) fn draw_popup_background(
     width: f32,
     height: f32,
 ) -> Result<()> {
-    draw_tinted_background(layers, popup_tint(dark, glass), glass, width, height)
+    draw_tinted_background(layers, popup_tint(dark, glass), glass, 1.0, width, height)
 }
 
-/// Host backdrop (when `glass`) plus a tint sprite. `draw_popup_background`
-/// uses the menu tint; the search and battery panels pass their own.
+/// Host backdrop (when `glass` and `backdrop_opacity > 0`) plus a tint sprite.
+/// `draw_popup_background` uses the menu tint at full blur; the search and
+/// battery panels pass their own Clear Liquid Glass tint and soft blur.
 pub(crate) fn draw_tinted_background(
     layers: &VisualCollection,
     tint: Color,
     glass: bool,
+    backdrop_opacity: f32,
     width: f32,
     height: f32,
 ) -> Result<()> {
     let compositor = layers.Compositor()?;
-    if glass {
-        add_sprite(
-            layers,
-            compositor.CreateHostBackdropBrush()?.cast()?,
-            0.0,
-            0.0,
-            width,
-            height,
-        )?;
+    let opacity = backdrop_opacity.clamp(0.0, 1.0);
+    if glass && opacity > 0.0 {
+        let backdrop = compositor.CreateSpriteVisual()?;
+        backdrop.SetBrush(&compositor.CreateHostBackdropBrush()?)?;
+        backdrop.SetSize(Vector2 {
+            X: width,
+            Y: height,
+        })?;
+        backdrop.SetOpacity(opacity)?;
+        layers.InsertAtTop(&backdrop)?;
     }
     add_sprite(
         layers,
