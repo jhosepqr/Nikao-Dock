@@ -242,9 +242,9 @@ pub fn show_desktop() {
 }
 
 /// How long a pressed "^" button gets to show its flyout before Win+B is tried.
-const HIDDEN_ICONS_INVOKE_WAIT: Duration = Duration::from_millis(500);
-/// How long the taskbar takes to put the focus on its notification area.
-const HIDDEN_ICONS_DELAY: Duration = Duration::from_millis(250);
+const HIDDEN_ICONS_INVOKE_WAIT: Duration = Duration::from_millis(1200);
+/// How long Win+B gets to hand the hidden taskbar the focus.
+const HIDDEN_ICONS_FOCUS_WAIT: Duration = Duration::from_millis(1000);
 /// How long the flyout is kept under the arrow while Windows finishes
 /// opening it (it may place it again during its animation).
 const HIDDEN_ICONS_HOLD: Duration = Duration::from_millis(1200);
@@ -293,14 +293,32 @@ pub fn toggle_hidden_icons(anchor: (i32, i32)) {
     // Everything waits on its own short-lived thread so the dock never sleeps
     // or blocks on Explorer.
     std::thread::spawn(move || {
-        if !(invoke_chevron() && wait_for_overflow(HIDDEN_ICONS_INVOKE_WAIT)) {
+        // A pressed button may take a moment to show its flyout (more so
+        // over the bare desktop); Win+B meanwhile would toggle it shut.
+        let invoked = invoke_chevron();
+        let opened = invoked && wait_for(HIDDEN_ICONS_INVOKE_WAIT, || open_overflow().is_some());
+        if !opened {
             tap(&[VK_LWIN, VK_B]);
-            std::thread::sleep(HIDDEN_ICONS_DELAY);
-            // Enter only where Win+B put the focus; never into the user's app.
+            // The auto-hidden taskbar takes the focus only once it has slid
+            // in. Enter goes only there; never into the user's app.
             // SAFETY: Read-only query of the foreground window.
-            if crate::taskbar::is_hidden(unsafe { GetForegroundWindow() }) {
+            let focused = wait_for(HIDDEN_ICONS_FOCUS_WAIT, || {
+                crate::taskbar::is_hidden(unsafe { GetForegroundWindow() })
+            });
+            if focused {
                 tap(&[VK_RETURN]);
             }
+            crate::log::line(&format!(
+                "iconos ocultos: invocar {}, Win+B {}",
+                if invoked {
+                    "sin abrir"
+                } else {
+                    "no disponible"
+                },
+                if focused { "y Enter" } else { "sin foco" },
+            ));
+        } else {
+            crate::log::line("iconos ocultos: abiertos al invocar el botón");
         }
         let until = Instant::now() + HIDDEN_ICONS_HOLD;
         while Instant::now() < until {
@@ -405,26 +423,41 @@ fn invoke_chevron() -> bool {
     }
 }
 
-/// Waits up to `limit` for the hidden-icons flyout to show.
-fn wait_for_overflow(limit: Duration) -> bool {
+/// Checks `done` every 10 ms for up to `limit`. Only on the short-lived
+/// thread a click on "^" starts.
+fn wait_for(limit: Duration, done: impl Fn() -> bool) -> bool {
     let until = Instant::now() + limit;
-    while Instant::now() < until {
-        if open_overflow().is_some() {
+    loop {
+        if done() {
             return true;
+        }
+        if Instant::now() >= until {
+            return false;
         }
         std::thread::sleep(Duration::from_millis(10));
     }
-    false
 }
 
-/// The hidden-icons flyout, if it is open.
+/// Whether the hidden-icons flyout is on screen.
+#[must_use]
+pub fn hidden_icons_open() -> bool {
+    open_overflow().is_some()
+}
+
+/// The hidden-icons flyout, if it is on screen. Its host window can stay
+/// "visible" while closed but cloaked or empty; that is not open.
 fn open_overflow() -> Option<HWND> {
     OVERFLOW_CLASSES.iter().find_map(|&class| {
-        // SAFETY: Read-only window lookups.
+        // SAFETY: Read-only window lookups; `rect` is a valid output.
         unsafe {
-            FindWindowW(class, None)
-                .ok()
-                .filter(|&window| IsWindowVisible(window).as_bool())
+            FindWindowW(class, None).ok().filter(|&window| {
+                let mut rect = RECT::default();
+                IsWindowVisible(window).as_bool()
+                    && !crate::tracker::is_cloaked(window)
+                    && GetWindowRect(window, &mut rect).is_ok()
+                    && rect.right > rect.left
+                    && rect.bottom > rect.top
+            })
         }
     })
 }

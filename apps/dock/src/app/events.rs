@@ -61,7 +61,10 @@ pub(super) unsafe extern "system" fn on_win_event(
     } else if event == EVENT_SYSTEM_FOREGROUND {
         if tracker::is_task_switcher(hwnd) {
             with_app("Alt+Tab", App::task_switcher_opened);
-        } else if taskbar::is_hidden(hwnd) && !launcher::opening_hidden_icons() {
+        } else if taskbar::is_hidden(hwnd)
+            && !launcher::opening_hidden_icons()
+            && !launcher::hidden_icons_open()
+        {
             with_app("barra de tareas oculta", App::leave_hidden_taskbar);
         } else if !tracker::is_switch_transient(hwnd) {
             LAST_FRONT.store(hwnd.0 as isize, Ordering::Relaxed);
