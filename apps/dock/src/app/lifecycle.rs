@@ -525,6 +525,7 @@ impl App {
         }
         let dt = now.duration_since(self.last_frame).as_secs_f32();
         self.amount.step(dt);
+        self.start_slide()?;
         self.slide.step(dt);
         self.last_frame = now;
 

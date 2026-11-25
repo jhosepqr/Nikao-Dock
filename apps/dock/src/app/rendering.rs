@@ -1,6 +1,6 @@
 //! Dock composition, layout and frame rendering on the existing UI thread.
 
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use muelle_core::{
@@ -8,6 +8,7 @@ use muelle_core::{
     frame::{DockEdge, Frame as DockFrame},
     layout::{ItemKind, Metrics, layout},
     magnify::{Magnifier, magnify},
+    spring::Spring,
 };
 use muelle_shell::{
     appbar::Edge,
@@ -21,8 +22,8 @@ use crate::scene::{Drag, Frame, Scene, SceneInput, SlotContent, Theme};
 use super::{
     App, BADGE_CORNER, BOUNCE_HEIGHT, ENTER_HALO, Entry, FLOAT_MARGIN, LABEL_ROOM, LEAVE_HALO,
     RANGE_IN_ICONS, REORDER_DURATION, REVEAL_STRIP, ReorderMotion, Role, SHADOW_ROOM,
-    SIDE_LABEL_MAX, START_ID, Stage, StageKey, TRIM_DELAY_MS, TRIM_TIMER, place, window_id,
-    window_of,
+    SIDE_LABEL_MAX, SLIDE_TIMER, START_ID, Stage, StageKey, TRIM_DELAY_MS, TRIM_TIMER, millis,
+    place, window_id, window_of,
 };
 
 impl App {
@@ -489,7 +490,39 @@ impl App {
         }
     }
 
+    /// Hands a new hide target to the compositor (see `Scene::slide_to`) and
+    /// leaves the spring settled there, so the slide costs no frames here.
+    pub(super) fn start_slide(&mut self) -> Result<()> {
+        if self.slide.is_settled() {
+            return Ok(());
+        }
+        let to = self.slide.target;
+        self.slide = Spring::at(to, self.slide.omega);
+        let Some(stage) = &self.stage else {
+            return Ok(());
+        };
+        if !animations_enabled() {
+            return Ok(());
+        }
+        // The spring's own pace: it completes in about 6 / omega seconds.
+        let duration = Duration::from_secs_f32((6.0 / self.slide.omega).clamp(0.12, 0.6));
+        stage
+            .scene
+            .slide_to(&self.gfx, to * stage.slide_distance, duration)?;
+        // SAFETY: A one-shot timer on our own window.
+        unsafe {
+            SetTimer(
+                Some(self.input),
+                SLIDE_TIMER,
+                millis(duration).saturating_add(16),
+                None,
+            )
+        };
+        Ok(())
+    }
+
     pub(super) fn render(&mut self) -> Result<()> {
+        self.start_slide()?;
         let Some(stage) = &mut self.stage else {
             return Ok(());
         };
@@ -597,7 +630,7 @@ impl App {
                     .is_some_and(|asset| asset.icon.is_some());
                 let corner = if has_badge { BADGE_CORNER } else { 0.0 };
                 let opacity = match self.flights.iter().find(|flight| flight.hwnd == hwnd) {
-                    _ if !visible => 0,
+                    _ if !visible || stage.scene.sliding() => 0,
                     Some(flight) => flight.landing_opacity(now),
                     None => 255,
                 };

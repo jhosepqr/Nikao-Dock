@@ -31,9 +31,10 @@ use super::{
     HSHELL_RUDEAPPACTIVATED, HSHELL_WINDOWACTIVATED, HSHELL_WINDOWDESTROYED, LAST_FRONT,
     MASCOT_TIMER, Outside, PBT_APMPOWERSTATUSCHANGE, PBT_APMRESUMEAUTOMATIC,
     PBT_POWERSETTINGCHANGE, PINS_CHANGED, PINS_DELAY_MS, PINS_TIMER, PREVIEW_TIMER,
-    REFRESH_DELAY_MS, REFRESH_TIMER, SHELL_HOOK, SPI_SETWORKAREA, SPRING_TIMER, SWITCHER_TIMER,
-    SYNC_DELAY_MS, SYNC_TIMER, TASKBAR_CREATED, TASKBAR_DELAY_MS, TASKBAR_PREFS_CHANGED,
-    TASKBAR_TAKEN, TASKBAR_TIMER, TRIM_TIMER, UPDATE_TIMER, WM_MOUSELEAVE, WM_POWERBROADCAST,
+    REFRESH_DELAY_MS, REFRESH_TIMER, SHELL_HOOK, SLIDE_TIMER, SPI_SETWORKAREA, SPRING_TIMER,
+    SWITCHER_TIMER, SYNC_DELAY_MS, SYNC_TIMER, TASKBAR_CREATED, TASKBAR_DELAY_MS,
+    TASKBAR_PREFS_CHANGED, TASKBAR_TAKEN, TASKBAR_TIMER, TRIM_TIMER, UPDATE_TIMER, WM_MOUSELEAVE,
+    WM_POWERBROADCAST,
     feedback::query_bin_in_background,
     lifecycle::{is_tracked, main_window},
     with_app, with_app_then,
@@ -557,6 +558,13 @@ pub(super) unsafe extern "system" fn wndproc(
                 let _ = KillTimer(Some(hwnd), w.0);
             }
             with_app("ocultación", App::hide_if_unused);
+        }
+        WM_TIMER if w.0 == SLIDE_TIMER => {
+            // SAFETY: Same as above.
+            unsafe {
+                let _ = KillTimer(Some(hwnd), w.0);
+            }
+            with_app("fin del deslizamiento", App::render);
         }
         WM_TIMER if w.0 == TRIM_TIMER => {
             // SAFETY: `hwnd` is this live window on its owning UI thread.

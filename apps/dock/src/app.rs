@@ -229,6 +229,9 @@ const ASSETS_DELAY_MS: u32 = 16;
 /// Armed only while dragging or holding a draggable icon.
 const DRAG_TIMER: usize = 16;
 const DRAG_POLL_MS: u32 = 16;
+/// One shot at the end of a compositor slide, to put the live window
+/// thumbnails back in place (they cannot ride the compositor animation).
+const SLIDE_TIMER: usize = 17;
 
 /// Screen-edge strip that reveals a hidden dock, in physical pixels.
 const REVEAL_STRIP: i32 = 2;

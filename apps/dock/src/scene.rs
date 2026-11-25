@@ -1,7 +1,10 @@
 //! Dock visual tree: shadow, glass, specular border, dividers, icons, indicators,
 //! and labels. It is built once per configuration; only its elements move per frame.
 
-use std::cell::Cell;
+use std::{
+    cell::Cell,
+    time::{Duration, Instant},
+};
 
 use anyhow::Result;
 use muelle_core::{
@@ -10,6 +13,7 @@ use muelle_core::{
     magnify::Magnified,
 };
 use windows::{
+    Foundation::TimeSpan,
     UI::{
         Color,
         Composition::{
@@ -17,7 +21,7 @@ use windows::{
             CompositionSurfaceBrush, ContainerVisual, ShapeVisual, SpriteVisual, Visual,
         },
     },
-    core::Interface,
+    core::{Interface, h},
 };
 use windows_numerics::{Vector2, Vector3};
 
@@ -686,9 +690,39 @@ pub struct Scene {
     indicators: Vec<Option<ShapeVisual>>,
     labels: Vec<Option<Label>>,
     remove_label: Option<Label>,
+    /// End of the compositor slide started by `slide_to`. Until then the
+    /// compositor owns the root's offset.
+    sliding_until: Cell<Option<Instant>>,
 }
 
 impl Scene {
+    /// Glides the whole dock to `slide` pixels toward its screen edge, from
+    /// wherever it is now. The compositor runs it at the display's refresh
+    /// rate: no frame work on the UI thread, and a busy thread (or a blocking
+    /// call to Explorer) cannot make it stutter.
+    pub fn slide_to(&self, gfx: &Gfx, slide: f32, duration: Duration) -> Result<()> {
+        let c = &gfx.compositor;
+        let (x, y) = self.frame.outward(slide);
+        let ease =
+            c.CreateCubicBezierEasingFunction(Vector2::new(0.25, 0.1), Vector2::new(0.25, 1.0))?;
+        let animation = c.CreateVector3KeyFrameAnimation()?;
+        animation.SetDuration(TimeSpan {
+            Duration: i64::try_from(duration.as_nanos() / 100).unwrap_or(i64::MAX),
+        })?;
+        animation.InsertExpressionKeyFrame(0.0, h!("this.StartingValue"))?;
+        animation.InsertKeyFrameWithEasingFunction(1.0, v3(x, y), &ease)?;
+        self.root.StartAnimation(h!("Offset"), &animation)?;
+        self.sliding_until.set(Some(Instant::now() + duration));
+        Ok(())
+    }
+
+    /// A slide from `slide_to` is still running.
+    pub fn sliding(&self) -> bool {
+        self.sliding_until
+            .get()
+            .is_some_and(|until| Instant::now() < until)
+    }
+
     /// Where the slot is drawn now, along the dock, in dock coordinates.
     pub fn slot_along(&self, index: usize) -> Option<f32> {
         let offset = self.slots.get(index)?.Offset().ok()?;
@@ -838,6 +872,7 @@ impl Scene {
             indicators,
             labels,
             remove_label,
+            sliding_until: Cell::new(None),
         })
     }
 
@@ -872,8 +907,13 @@ impl Scene {
         } = *frame;
         let fit = |value: f32| if snap { value.round() } else { value };
         let place = |rect: Rect| self.frame.rect(rect);
-        let (slide_x, slide_y) = self.frame.outward(slide);
-        self.root.SetOffset(v3(slide_x, slide_y))?;
+        if !self.sliding() {
+            if self.sliding_until.take().is_some() {
+                self.root.StopAnimation(h!("Offset"))?;
+            }
+            let (slide_x, slide_y) = self.frame.outward(slide);
+            self.root.SetOffset(v3(slide_x, slide_y))?;
+        }
         self.raise(drag.map(|drag| drag.index))?;
         self.place_merge(target.and_then(|index| {
             Some((
