@@ -19,7 +19,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  GLASS_TAG: v0.1.22-glass.9
+  GLASS_TAG: v0.1.22-glass.10
 
 jobs:
   check:
@@ -63,7 +63,7 @@ jobs:
           $ascii = [Text.Encoding]::ASCII.GetString($bytes)
           $utf16 = [Text.Encoding]::Unicode.GetString($bytes)
           $upstream = 'crafter-station/Muelle/releases/latest/download/latest.json'
-          $fork = 'jhosepqr/Nikao-Dock/releases/download/v0.1.22-glass.9/latest.json'
+          $fork = 'jhosepqr/Nikao-Dock/releases/download/v0.1.22-glass.10/latest.json'
           if ($ascii.Contains($upstream) -or $utf16.Contains($upstream)) {
             throw 'muelle-settings.exe still contains the upstream updater endpoint'
           }
@@ -123,7 +123,7 @@ jobs:
           }
           $url = "https://github.com/$env:GITHUB_REPOSITORY/releases/download/$env:GLASS_TAG/Nikao-Dock-Setup.exe"
           @(
-            'Instalador sin firmar de main. Arregla la búsqueda: ahora se puede escribir, se ven el texto, el cursor y el texto de ayuda, Enter abre el primer resultado y Esc cierra. Busca apps del menú Inicio y páginas de Configuración; la última fila busca archivos con el índice de Windows en el Explorador. Mantiene el estilo Liquid Glass claro. Cerrado, el panel no usa CPU.'
+            'Instalador sin firmar de main. El menú nativo de íconos ocultos espera el foco de teclado de la bandeja cuando necesita recurrir a Win+B. La barra superior conserva el indicador de idioma y la posición de sus íconos mientras el menú recibe el foco.'
             ''
             'No se actualiza solo al Muelle oficial de crafter-station. La próxima compilación se instala a mano. No incluye latest.json.'
             ''

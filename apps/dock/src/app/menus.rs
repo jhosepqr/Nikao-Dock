@@ -20,7 +20,7 @@ use super::{
     CMD_RUN_AS_ADMIN, CMD_SETTINGS, CMD_SHOW_DESKTOP, CMD_TASK_MANAGER, CMD_TASKBAR_SETTINGS,
     CMD_TOGGLE_HIDING, CMD_TOGGLE_PIN, CMD_UNGROUP, CMD_WINDOW, MAIN_WINDOW, MENU_TITLE_CHARS,
     MENU_WINDOWS, MenuRequest, MenuTarget, Outside, Role, Stage,
-    events::menu_bar_refresh,
+    events::menu_bar_input_language_changed,
     lifecycle::{main_window, request_quit},
     preferences::{
         explorer_id, fixed_item_preference, forget_shortcuts_folder, hide_fixed_item, save_settings,
@@ -115,7 +115,7 @@ pub(super) fn run_outside(outside: Outside) {
                 muelle_shell::log::line(&format!("cambiar teclado: {error}"));
                 shell_work::notify_not_started();
             }
-            menu_bar_refresh();
+            menu_bar_input_language_changed();
         }
         Outside::EndTask(target) => {
             // Captured kernel handles are Send; no HWND or PID is resolved

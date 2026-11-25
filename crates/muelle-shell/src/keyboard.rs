@@ -3,7 +3,7 @@
 
 use windows::{
     Win32::{
-        Foundation::{ERROR_INVALID_PARAMETER, ERROR_INVALID_WINDOW_HANDLE, LPARAM, WPARAM},
+        Foundation::{ERROR_INVALID_PARAMETER, ERROR_INVALID_WINDOW_HANDLE, HWND, LPARAM, WPARAM},
         Globalization::{GetLocaleInfoW, LOCALE_SLOCALIZEDDISPLAYNAME},
         System::Registry::{HKEY_LOCAL_MACHINE, RRF_RT_REG_SZ, RegGetValueW},
         UI::{
@@ -33,10 +33,14 @@ pub struct Layout {
 impl Context {
     #[must_use]
     pub fn current() -> Option<Self> {
+        // SAFETY: Read-only foreground lookup.
+        Self::for_window(unsafe { GetForegroundWindow() })
+    }
+
+    pub(crate) fn for_window(window: HWND) -> Option<Self> {
         // SAFETY: Read-only queries. A missing focus window falls back to the
         // foreground window; the request validates it again before posting.
         unsafe {
-            let window = GetForegroundWindow();
             if window.is_invalid() {
                 return None;
             }
@@ -70,7 +74,6 @@ impl Context {
     /// Does not activate a layout in Muelle's thread or synthesize keyboard
     /// shortcuts. The receiving application remains in control of its input.
     pub fn request(self, layout: isize) -> Result<()> {
-        use windows::Win32::Foundation::HWND;
         let window = HWND(self.window as *mut _);
         let target = HWND(self.target as *mut _);
         // SAFETY: Scalar handles are revalidated because the menu can outlive

@@ -705,7 +705,7 @@ pub fn foreground_class() -> String {
     class_name(unsafe { GetForegroundWindow() })
 }
 
-fn class_name(hwnd: HWND) -> String {
+pub(crate) fn class_name(hwnd: HWND) -> String {
     let mut buffer = [0u16; 128];
     // SAFETY: The buffer remains alive during the call, which returns the number of characters written.
     let len = unsafe { GetClassNameW(hwnd, &mut buffer) };

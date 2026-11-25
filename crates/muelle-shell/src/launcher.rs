@@ -6,7 +6,7 @@ use std::{
 use thiserror::Error;
 use windows::{
     Win32::{
-        Foundation::{CloseHandle, HANDLE, HWND, LPARAM, RECT, WPARAM},
+        Foundation::{CloseHandle, HANDLE, HWND, LPARAM, RECT, WAIT_OBJECT_0, WPARAM},
         Security::{GetTokenInformation, TOKEN_ELEVATION, TOKEN_QUERY, TokenElevation},
         System::{
             Com::{
@@ -18,8 +18,9 @@ use windows::{
         },
         UI::{
             Accessibility::{
-                CUIAutomation, IUIAutomation, IUIAutomationInvokePattern, TreeScope_Descendants,
-                UIA_AutomationIdPropertyId, UIA_ClassNamePropertyId, UIA_InvokePatternId,
+                CUIAutomation, HWINEVENTHOOK, IUIAutomation, IUIAutomationInvokePattern,
+                SetWinEventHook, TreeScope_Descendants, UIA_AutomationIdPropertyId,
+                UIA_ClassNamePropertyId, UIA_InvokePatternId, UnhookWinEvent,
             },
             Input::KeyboardAndMouse::{
                 INPUT, INPUT_0, INPUT_KEYBOARD, KEYBD_EVENT_FLAGS, KEYBDINPUT, KEYEVENTF_KEYUP,
@@ -28,12 +29,17 @@ use windows::{
             },
             Shell::{SEE_MASK_FLAG_NO_UI, SEE_MASK_NOASYNC, SHELLEXECUTEINFOW, ShellExecuteExW},
             WindowsAndMessaging::{
-                ASFW_ANY, AllowSetForegroundWindow, FindWindowW, GWL_EXSTYLE, GetForegroundWindow,
-                GetShellWindow, GetWindowLongW, GetWindowRect, GetWindowThreadProcessId, IsIconic,
-                IsWindow, IsWindowVisible, PostMessageW, SMTO_ABORTIFHUNG, SW_MINIMIZE, SW_RESTORE,
+                ASFW_ANY, AllowSetForegroundWindow, DispatchMessageW, EVENT_OBJECT_CLOAKED,
+                EVENT_OBJECT_FOCUS, EVENT_OBJECT_LOCATIONCHANGE, EVENT_OBJECT_SHOW,
+                EVENT_OBJECT_UNCLOAKED, EVENT_SYSTEM_FOREGROUND, FindWindowW, GUITHREADINFO,
+                GWL_EXSTYLE, GetForegroundWindow, GetGUIThreadInfo, GetShellWindow, GetWindowLongW,
+                GetWindowRect, GetWindowThreadProcessId, IsChild, IsIconic, IsWindow,
+                IsWindowVisible, MSG, MWMO_INPUTAVAILABLE, MsgWaitForMultipleObjectsEx, PM_REMOVE,
+                PeekMessageW, PostMessageW, QS_ALLINPUT, SMTO_ABORTIFHUNG, SW_MINIMIZE, SW_RESTORE,
                 SW_SHOWNORMAL, SWP_ASYNCWINDOWPOS, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER,
                 SWP_NOSIZE, SWP_NOZORDER, SendMessageTimeoutW, SetForegroundWindow, SetWindowPos,
-                ShowWindowAsync, SwitchToThisWindow, WM_CLOSE, WM_NULL, WS_EX_TOPMOST,
+                ShowWindowAsync, SwitchToThisWindow, WINEVENT_OUTOFCONTEXT, WM_CLOSE, WM_NULL,
+                WS_EX_TOPMOST,
             },
         },
     },
@@ -245,8 +251,7 @@ pub fn show_desktop() {
 const HIDDEN_ICONS_INVOKE_WAIT: Duration = Duration::from_millis(1200);
 /// How long Win+B gets to hand the hidden taskbar the focus.
 const HIDDEN_ICONS_FOCUS_WAIT: Duration = Duration::from_millis(1000);
-/// How long the flyout is kept under the arrow while Windows finishes
-/// opening it (it may place it again during its animation).
+/// How long Explorer may reposition the flyout during its opening animation.
 const HIDDEN_ICONS_HOLD: Duration = Duration::from_millis(1200);
 /// Space between the menu bar and the flyout, in physical pixels.
 const HIDDEN_ICONS_GAP: i32 = 6;
@@ -281,57 +286,100 @@ pub fn toggle_hidden_icons(anchor: (i32, i32)) {
                 tap(&[VK_ESCAPE]);
             }
         }
+        crate::log::line("iconos ocultos: clic para cerrar el menú visible");
         return;
     }
     if was_open {
         // The press itself already dismissed it.
+        crate::log::line("iconos ocultos: el menú se cerró al presionar");
         return;
     }
-    // The hidden taskbar may take the focus while the flyout opens: the dock
-    // must leave it there.
-    OPENING_HIDDEN_ICONS.store(true, Ordering::Relaxed);
-    // Everything waits on its own short-lived thread so the dock never sleeps
-    // or blocks on Explorer.
+    if OPENING_HIDDEN_ICONS.swap(true, Ordering::Relaxed) {
+        crate::log::line("iconos ocultos: apertura en curso");
+        return;
+    }
+    let front = crate::tracker::foreground_class();
+    // SAFETY: Read the shell PID and hand it foreground rights while the
+    // dock still has the user's click, before Invoke crosses into Explorer.
+    let explorer = unsafe {
+        FindWindowW(w!("Shell_TrayWnd"), None).ok().map(|tray| {
+            let mut pid = 0;
+            GetWindowThreadProcessId(tray, Some(&mut pid));
+            (pid, pid != 0 && AllowSetForegroundWindow(pid).is_ok())
+        })
+    };
+    let Some((pid, granted)) = explorer.filter(|(pid, _)| *pid != 0) else {
+        crate::log::line(&format!(
+            "iconos ocultos: barra de tareas no disponible (frente: {front})"
+        ));
+        OPENING_HIDDEN_ICONS.store(false, Ordering::Relaxed);
+        return;
+    };
+    // UI Automation calls into Explorer. Run them off the dock's UI thread.
     std::thread::spawn(move || {
-        // A pressed button may take a moment to show its flyout (more so
-        // over the bare desktop); Win+B meanwhile would toggle it shut.
-        let invoked = invoke_chevron();
-        let opened = invoked && wait_for(HIDDEN_ICONS_INVOKE_WAIT, || open_overflow().is_some());
-        if !opened {
-            tap(&[VK_LWIN, VK_B]);
-            // The auto-hidden taskbar takes the focus only once it has slid
-            // in. Enter goes only there; never into the user's app.
-            // SAFETY: Read-only query of the foreground window.
-            let focused = wait_for(HIDDEN_ICONS_FOCUS_WAIT, || {
-                crate::taskbar::is_hidden(unsafe { GetForegroundWindow() })
-            });
-            if focused {
-                tap(&[VK_RETURN]);
-            }
-            crate::log::line(&format!(
-                "iconos ocultos: invocar {}, Win+B {}",
-                if invoked {
-                    "sin abrir"
-                } else {
-                    "no disponible"
-                },
-                if focused { "y Enter" } else { "sin foco" },
-            ));
-        } else {
-            crate::log::line("iconos ocultos: abiertos al invocar el botón");
-        }
-        let until = Instant::now() + HIDDEN_ICONS_HOLD;
-        while Instant::now() < until {
-            if let Some(flyout) = open_overflow() {
-                keep_under(flyout, anchor);
-            }
-            std::thread::sleep(Duration::from_millis(10));
-        }
+        open_hidden_icons(&TrayEvents::new(pid), anchor, &front, granted);
         OPENING_HIDDEN_ICONS.store(false, Ordering::Relaxed);
     });
 }
 
-/// From Win+B until the hidden-icons flyout has had time to open.
+fn open_hidden_icons(events: &TrayEvents, anchor: (i32, i32), front: &str, granted: bool) {
+    let invoked = invoke_chevron();
+    let mut flyout = if invoked {
+        events.wait_for(HIDDEN_ICONS_INVOKE_WAIT, open_overflow)
+    } else {
+        open_overflow()
+    };
+    let mut path = "invocar";
+    let mut entered = false;
+    if flyout.is_none() {
+        path = "Win+B";
+        tap(&[VK_LWIN, VK_B]);
+        // Foreground can change before the shell gives its tray keyboard focus.
+        // Also accept a flyout that finished opening while the focus changed.
+        events.wait_for(HIDDEN_ICONS_FOCUS_WAIT, || {
+            open_overflow().or_else(tray_keyboard_focus)
+        });
+        flyout = open_overflow();
+        if flyout.is_none() && tray_keyboard_focus().is_some() {
+            tap(&[VK_RETURN]);
+            entered = true;
+            flyout = events.wait_for(HIDDEN_ICONS_INVOKE_WAIT, open_overflow);
+        }
+    }
+    crate::log::line(&format!(
+        "iconos ocultos: {path}, permiso de foco: {granted}, invocación aceptada: {invoked}, Enter: {entered}, menú visible: {} (frente inicial: {front}, final: {})",
+        flyout.is_some(),
+        crate::tracker::foreground_class()
+    ));
+    if let Some(flyout) = flyout {
+        events.wait_for(HIDDEN_ICONS_HOLD, || {
+            if open_overflow() != Some(flyout) {
+                return Some(());
+            }
+            keep_under(flyout, anchor);
+            None
+        });
+    }
+}
+
+fn tray_keyboard_focus() -> Option<HWND> {
+    let mut info = GUITHREADINFO {
+        cbSize: size_of::<GUITHREADINFO>() as u32,
+        ..Default::default()
+    };
+    // SAFETY: Read the foreground input queue into a valid output buffer.
+    unsafe {
+        GetGUIThreadInfo(0, &mut info).ok()?;
+        let tray = info.hwndActive;
+        (tray == GetForegroundWindow()
+            && crate::taskbar::is_hidden(tray)
+            && !info.hwndFocus.is_invalid()
+            && (info.hwndFocus == tray || IsChild(tray, info.hwndFocus).as_bool()))
+        .then_some(info.hwndFocus)
+    }
+}
+
+/// While the click worker is opening and positioning the flyout.
 static OPENING_HIDDEN_ICONS: AtomicBool = AtomicBool::new(false);
 
 /// Whether the taskbar has the focus because Muelle is opening its
@@ -371,10 +419,8 @@ pub fn note_menu_bar_press() {
     OVERFLOW_OPEN_AT_PRESS.store(open_overflow().is_some(), Ordering::Relaxed);
 }
 
-/// Presses the hidden taskbar's "^" button through UI Automation, as a
-/// screen reader would: Windows 11's XAML tray (`SystemTrayIcon`, or its
-/// `SystemTray.ChevronIconView`), then Windows 10's chevron (control 1502).
-/// `false` when the button or its Invoke pattern is missing.
+/// Presses the actual XAML chevron, or the legacy chevron (control 1502).
+/// Other tray icons can share the SystemTrayIcon automation ID.
 fn invoke_chevron() -> bool {
     // SAFETY: COM is initialized for this short-lived thread and every
     // interface is released before `CoUninitialize`.
@@ -385,22 +431,17 @@ fn invoke_chevron() -> bool {
             let automation: IUIAutomation =
                 CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER)?;
             let root = automation.ElementFromHandle(taskbar)?;
-            let conditions = [
-                automation.CreatePropertyCondition(
-                    UIA_AutomationIdPropertyId,
-                    &"SystemTrayIcon".into(),
-                )?,
-                automation.CreatePropertyCondition(
-                    UIA_ClassNamePropertyId,
-                    &"SystemTray.ChevronIconView".into(),
-                )?,
-                automation.CreatePropertyCondition(UIA_AutomationIdPropertyId, &"1502".into())?,
-            ]
-            .map(Some);
-            let found = root.FindFirst(
-                TreeScope_Descendants,
-                &automation.CreateOrConditionFromNativeArray(&conditions)?,
+            let chevron = automation.CreatePropertyCondition(
+                UIA_ClassNamePropertyId,
+                &"SystemTray.ChevronIconView".into(),
             )?;
+            let found = root
+                .FindFirst(TreeScope_Descendants, &chevron)
+                .or_else(|_| {
+                    let legacy = automation
+                        .CreatePropertyCondition(UIA_AutomationIdPropertyId, &"1502".into())?;
+                    root.FindFirst(TreeScope_Descendants, &legacy)
+                })?;
             // The match can be the glyph inside the button: climb to the
             // nearest element that can be pressed.
             let walker = automation.ControlViewWalker()?;
@@ -423,19 +464,94 @@ fn invoke_chevron() -> bool {
     }
 }
 
-/// Checks `done` every 10 ms for up to `limit`. Only on the short-lived
-/// thread a click on "^" starts.
-fn wait_for(limit: Duration, done: impl Fn() -> bool) -> bool {
-    let until = Instant::now() + limit;
-    loop {
-        if done() {
-            return true;
-        }
-        if Instant::now() >= until {
-            return false;
-        }
-        std::thread::sleep(Duration::from_millis(10));
+/// Explorer hooks belong to the click worker and are removed before it exits.
+struct TrayEvents([HWINEVENTHOOK; 4]);
+
+impl TrayEvents {
+    fn new(pid: u32) -> Self {
+        let ranges = [
+            (EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND),
+            (EVENT_OBJECT_SHOW, EVENT_OBJECT_FOCUS),
+            (EVENT_OBJECT_LOCATIONCHANGE, EVENT_OBJECT_LOCATIONCHANGE),
+            (EVENT_OBJECT_CLOAKED, EVENT_OBJECT_UNCLOAKED),
+        ];
+        Self(ranges.map(|(first, last)| {
+            // SAFETY: Out-of-context events wake the hook thread's queue.
+            unsafe {
+                SetWinEventHook(
+                    first,
+                    last,
+                    None,
+                    Some(on_tray_event),
+                    pid,
+                    0,
+                    WINEVENT_OUTOFCONTEXT,
+                )
+            }
+        }))
     }
+
+    fn wait_for<T>(&self, limit: Duration, mut ready: impl FnMut() -> Option<T>) -> Option<T> {
+        let deadline = Instant::now() + limit;
+        loop {
+            let result = ready();
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if result.is_some() || remaining.is_zero() {
+                return result;
+            }
+            // SAFETY: No handles. Wait for Windows messages or one deadline.
+            unsafe {
+                let timeout = remaining.as_millis().max(1) as u32;
+                if MsgWaitForMultipleObjectsEx(None, timeout, QS_ALLINPUT, MWMO_INPUTAVAILABLE)
+                    != WAIT_OBJECT_0
+                {
+                    return ready();
+                }
+                let mut msg = MSG::default();
+                if PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE).as_bool() {
+                    DispatchMessageW(&msg);
+                }
+            }
+        }
+    }
+}
+
+impl Drop for TrayEvents {
+    fn drop(&mut self) {
+        for hook in self.0 {
+            if !hook.is_invalid() {
+                // SAFETY: This is the thread that installed the hook.
+                unsafe {
+                    let _ = UnhookWinEvent(hook);
+                }
+            }
+        }
+    }
+}
+
+// The notification wakes the queue. The worker checks the current state
+// after dispatch because Explorer can change it again before delivery.
+unsafe extern "system" fn on_tray_event(
+    _: HWINEVENTHOOK,
+    _: u32,
+    _: HWND,
+    _: i32,
+    _: i32,
+    _: u32,
+    _: u32,
+) {
+}
+
+/// The taskbar and its overflow can briefly own the foreground while opening
+/// the flyout. They do not provide the user's active input context.
+pub fn is_tray_window(hwnd: HWND) -> bool {
+    matches!(
+        crate::tracker::class_name(hwnd).as_str(),
+        "Shell_TrayWnd"
+            | "Shell_SecondaryTrayWnd"
+            | "TopLevelWindowForOverflowXamlIsland"
+            | "NotifyIconOverflowWindow"
+    )
 }
 
 /// Whether the hidden-icons flyout is on screen.

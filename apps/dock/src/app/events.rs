@@ -357,12 +357,10 @@ pub fn menu_bar_dismiss_island() {
     });
 }
 
-/// Redraws the menu bar from what it reads on each draw (input language,
-/// clock), without asking the network or audio again.
-pub fn menu_bar_refresh() {
-    with_app("barra superior", |app| {
+pub fn menu_bar_input_language_changed() {
+    with_app("idioma de entrada", |app| {
         if let Some(bar) = &mut app.menubar {
-            bar.refresh(&app.gfx)?;
+            bar.input_language_changed(&app.gfx)?;
         }
         app.take_bar_cue();
         Ok(())
@@ -639,7 +637,7 @@ pub(super) unsafe extern "system" fn wndproc(
             // (an app that declares its identity late) needs a new look.
             HSHELL_REDRAW if is_tracked(l.0) => {}
             // The input language indicator of the menu bar.
-            HSHELL_LANGUAGE => menu_bar_refresh(),
+            HSHELL_LANGUAGE => menu_bar_input_language_changed(),
             code => {
                 if code == HSHELL_FLASH {
                     with_app("aviso de atención", |app| app.on_attention(l.0));

@@ -107,22 +107,34 @@ pub fn energy_saver_on() -> bool {
 
 /// The input language of the window in front as two capital letters
 /// ("ES", "EN"), or `None` with a single language installed: the Windows
-/// taskbar only shows its language indicator when there is a choice.
+/// taskbar only shows its language indicator when there is a choice. Keep the
+/// previous reading while the tray owns focus or Windows is switching windows.
 #[must_use]
-pub fn input_language() -> Option<String> {
+pub fn input_language(previous: Option<&str>) -> Option<String> {
     use windows::Win32::{
         Globalization::LCIDToLocaleName, UI::Input::KeyboardAndMouse::GetKeyboardLayoutList,
+        UI::WindowsAndMessaging::GetForegroundWindow,
     };
     // SAFETY: Read-only queries; `name` is a valid buffer for the locale name.
     unsafe {
+        let front = GetForegroundWindow();
+        if front.is_invalid() || crate::launcher::is_tray_window(front) {
+            return previous.map(str::to_owned);
+        }
         if GetKeyboardLayoutList(None) < 2 {
             return None;
         }
         // Each thread has its own layout: the one that matters is in front.
-        let language = (crate::keyboard::Context::current()?.layout as usize & 0xFFFF) as u32;
+        let Some(context) = crate::keyboard::Context::for_window(front) else {
+            return previous.map(str::to_owned);
+        };
+        let language = (context.layout as usize & 0xFFFF) as u32;
         let mut name = [0u16; 85];
-        let len = usize::try_from(LCIDToLocaleName(language, Some(&mut name), 0)).ok()?;
-        let tag = String::from_utf16_lossy(name.get(..len.checked_sub(1)?)?);
+        let len = LCIDToLocaleName(language, Some(&mut name), 0);
+        if len <= 1 {
+            return previous.map(str::to_owned);
+        }
+        let tag = String::from_utf16_lossy(&name[..len as usize - 1]);
         let code = tag.split('-').next()?.to_uppercase();
         (!code.is_empty()).then_some(code)
     }

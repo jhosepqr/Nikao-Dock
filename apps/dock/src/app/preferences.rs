@@ -9,10 +9,12 @@ use muelle_core::{
     roster::{Group, Roster},
 };
 use muelle_shell::{
+    launcher,
     pins::{app_exists, taskbar_pins, taskbar_pins_if_readable},
     system::primary_monitor,
     tracker::{self, normalize_id},
 };
+use windows::Win32::Foundation::HWND;
 
 use crate::{
     assets::fallback_name,
@@ -355,6 +357,9 @@ impl App {
             return Ok(());
         }
         let front = tracker::foreground_window();
+        if front == 0 || launcher::is_tray_window(HWND(front as *mut _)) {
+            return Ok(());
+        }
         let id = self
             .windows
             .iter()

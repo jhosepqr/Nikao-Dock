@@ -490,6 +490,7 @@ pub struct MenuBar {
     surface: ContainerVisual,
     appbar: Option<AppBar>,
     app_name: String,
+    input_language: Option<String>,
     look: Option<Look>,
     /// Clickable spans, in window pixels.
     zones: Vec<(f32, f32, Action)>,
@@ -1162,6 +1163,7 @@ impl MenuBar {
             surface,
             appbar: AppBar::register(hwnd, APPBAR_CALLBACK),
             app_name: String::new(),
+            input_language: system::input_language(None),
             look: None,
             zones: Vec::new(),
             visible: true,
@@ -1224,6 +1226,16 @@ impl MenuBar {
             return Ok(());
         }
         name.clone_into(&mut self.app_name);
+        self.input_language = system::input_language(self.input_language.as_deref());
+        self.refresh(gfx)
+    }
+
+    pub fn input_language_changed(&mut self, gfx: &Gfx) -> Result<()> {
+        let input = system::input_language(self.input_language.as_deref());
+        if self.input_language == input {
+            return Ok(());
+        }
+        self.input_language = input;
         self.refresh(gfx)
     }
 
@@ -1960,7 +1972,7 @@ impl MenuBar {
             blur: appearance.blur,
             app_name: self.app_name.clone(),
             clock: system::clock_text(),
-            input: system::input_language(),
+            input: self.input_language.clone(),
             battery: system::battery(),
             status: self.status,
             widgets: self.widgets,
