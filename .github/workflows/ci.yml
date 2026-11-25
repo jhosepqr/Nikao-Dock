@@ -42,5 +42,17 @@ jobs:
           pnpm build
 
       - run: cargo fmt --all --check
-      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Run Windows Clippy
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $false
+          cargo clippy --color never --workspace --all-targets -- -D warnings 2>&1 |
+            Tee-Object -Variable clippyLog
+          $exitCode = $LASTEXITCODE
+          if ($exitCode -ne 0) {
+            $detail = ($clippyLog | Select-Object -Last 20) -join "`n"
+            $detail = $detail.Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
+            Write-Output "::error title=Windows Clippy::$detail"
+            exit $exitCode
+          }
       - run: cargo test --workspace
