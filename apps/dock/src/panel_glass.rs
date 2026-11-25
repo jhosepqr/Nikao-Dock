@@ -186,18 +186,7 @@ impl Surface<'_> {
         if text.is_empty() {
             return Ok(0.0);
         }
-        let brush = self.gfx.text_brush_colored(
-            text,
-            self.canvas.scale,
-            TextStyle {
-                size: font,
-                bold,
-                color: [0, 0, 0, 255],
-                shadow: None,
-                max_width: None,
-            },
-        )?;
-        Ok(brush.width)
+        self.gfx.text_width(text, self.canvas.scale, font, bold)
     }
 
     pub fn fill(&self, color: Rgba, round: Round) -> Result<()> {

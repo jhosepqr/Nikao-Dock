@@ -46,7 +46,7 @@ use windows::{
             },
         },
     },
-    core::{HSTRING, w},
+    core::w,
 };
 
 use crate::{
@@ -61,8 +61,6 @@ const MAX_DEPTH: u8 = 6;
 const MAX_HITS: usize = 8;
 /// Logical size of the query, placeholder and caret line.
 const FIELD_FONT: f32 = 15.0;
-/// `EM_SETCUEBANNER`. Copied by the control, so the buffer need only live for the call.
-const EM_SETCUEBANNER: u32 = 5377;
 const EM_GETSEL: u32 = 0x00B0;
 /// A click that closes the panel by deactivating it is followed by the
 /// magnifier's own click. Ignore a reopen that close just caused.
@@ -94,6 +92,33 @@ struct Entry {
     kind: Kind,
     /// Folder name under the Start menu, when it adds something.
     detail: String,
+    /// `fold`ed names, one per alias (or just the title), so typing does not
+    /// re-fold the whole catalog on every keystroke.
+    folded: Vec<String>,
+}
+
+impl Entry {
+    fn new(
+        title: String,
+        aliases: Vec<String>,
+        target: String,
+        kind: Kind,
+        detail: String,
+    ) -> Self {
+        let folded = if aliases.is_empty() {
+            vec![fold(&title)]
+        } else {
+            aliases.iter().map(|name| fold(name)).collect()
+        };
+        Self {
+            title,
+            aliases,
+            target,
+            kind,
+            detail,
+            folded,
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -187,6 +212,13 @@ fn show(gfx: &Gfx, anchor: POINT) {
         eprintln!("muelle: buscador: {error}");
         return;
     }
+    // Cleared before the tree is attached, so the `EN_CHANGE` it raises does
+    // not paint a frame that `render` below paints again.
+    if let Some(edit) = PANEL.with(|slot| slot.borrow().as_ref().map(|panel| panel.edit)) {
+        unsafe {
+            let _ = SetWindowTextW(edit, w!(""));
+        }
+    }
     let Some((hwnd, edit)) = PANEL.with(|slot| {
         let mut guard = slot.borrow_mut();
         let panel = guard.as_mut()?;
@@ -216,14 +248,6 @@ fn show(gfx: &Gfx, anchor: POINT) {
         return;
     };
     unsafe {
-        let _ = SetWindowTextW(edit, w!(""));
-        let cue = HSTRING::from(words().placeholder);
-        let _ = SendMessageW(
-            edit,
-            EM_SETCUEBANNER,
-            Some(WPARAM(1)),
-            Some(LPARAM(cue.as_ptr() as isize)),
-        );
         // SW_SHOWNA: activation comes once, from `take_focus`, not twice.
         let _ = ShowWindow(hwnd, SW_SHOWNA);
     }
@@ -247,10 +271,15 @@ fn hide(guard_reopen: bool) {
             let _ = ShowWindow(hwnd, SW_HIDE);
         }
     }
-    // The tree exists only while the panel is open.
+    // The tree and the catalog exist only while the panel is open.
     PANEL.with(|slot| {
         if let Some(panel) = slot.borrow_mut().as_mut() {
             panel.scene = None;
+            panel.entries = Vec::new();
+            panel.hits = Vec::new();
+            panel.query = String::new();
+            panel.selected = None;
+            panel.caret = 0;
         }
     });
     if guard_reopen {
@@ -925,13 +954,13 @@ fn walk(dir: &Path, depth: u8, into: &mut Vec<Entry>) {
             continue;
         }
         let target = path.to_string_lossy().into_owned();
-        into.push(Entry {
+        into.push(Entry::new(
             title,
-            aliases: Vec::new(),
+            Vec::new(),
             target,
-            kind: Kind::App,
-            detail: parent_label(&path),
-        });
+            Kind::App,
+            parent_label(&path),
+        ));
     }
 }
 
@@ -1003,13 +1032,13 @@ fn settings_pages() -> Vec<Entry> {
         .iter()
         .filter_map(|(target, names)| {
             let title = (*names.first()?).to_owned();
-            Some(Entry {
+            Some(Entry::new(
                 title,
-                aliases: names.iter().map(|name| (*name).to_owned()).collect(),
-                target: (*target).to_owned(),
-                kind: Kind::Setting,
-                detail: String::new(),
-            })
+                names.iter().map(|name| (*name).to_owned()).collect(),
+                (*target).to_owned(),
+                Kind::Setting,
+                String::new(),
+            ))
         })
         .collect()
 }
@@ -1025,24 +1054,15 @@ struct Rank {
 /// that row is opened.
 fn filter(entries: &[Entry], query: &str) -> Vec<Hit> {
     let trimmed = query.trim();
-    if fold(trimmed).is_empty() {
+    let folded = fold(trimmed);
+    if folded.is_empty() {
         return Vec::new();
     }
     let mut ranked = Vec::new();
     for (index, entry) in entries.iter().enumerate() {
         let mut best: Option<(i32, usize)> = None;
-        let aliases = if entry.aliases.is_empty() {
-            1
-        } else {
-            entry.aliases.len()
-        };
-        for alias in 0..aliases {
-            let label = if entry.aliases.is_empty() {
-                entry.title.as_str()
-            } else {
-                entry.aliases[alias].as_str()
-            };
-            let Some(score) = score(query, label) else {
+        for (alias, name) in entry.folded.iter().enumerate() {
+            let Some(score) = folded_score(&folded, name) else {
                 continue;
             };
             match best {
@@ -1113,13 +1133,16 @@ fn shown_detail(entry: &Entry) -> String {
 }
 
 /// Higher is a closer match. `None` when `query` is blank or does not fit.
+#[cfg(test)]
 fn score(query: &str, candidate: &str) -> Option<i32> {
-    let query = fold(query);
-    let query = query.trim();
+    folded_score(fold(query).trim(), &fold(candidate))
+}
+
+/// `score` for a query and candidate that are already `fold`ed and trimmed.
+fn folded_score(query: &str, candidate: &str) -> Option<i32> {
     if query.is_empty() {
         return None;
     }
-    let candidate = fold(candidate);
     if let Some(pos) = candidate.find(query) {
         let mut value = 10_000 - i32::try_from(pos).unwrap_or(0) * 8;
         if pos == 0 {
@@ -1133,41 +1156,39 @@ fn score(query: &str, candidate: &str) -> Option<i32> {
         }
         return Some(value);
     }
-    subsequence(query, &candidate)
+    subsequence(query, candidate)
 }
 
 fn subsequence(query: &str, candidate: &str) -> Option<i32> {
-    let query: Vec<char> = query
+    let mut wanted = query
         .chars()
         .filter(|letter| !letter.is_whitespace())
-        .collect();
-    if query.is_empty() {
-        return None;
-    }
-    let chars: Vec<char> = candidate.chars().collect();
-    let mut at = 0;
+        .peekable();
+    wanted.peek()?;
     let mut value = 0;
     let mut run = false;
-    for (index, letter) in chars.iter().copied().enumerate() {
+    let mut previous: Option<char> = None;
+    for letter in candidate.chars() {
+        let starts_word = previous.is_none_or(char::is_whitespace);
+        previous = Some(letter);
         if letter.is_whitespace() {
             run = false;
             continue;
         }
-        if at < query.len() && letter == query[at] {
+        if wanted.next_if_eq(&letter).is_some() {
             value += 12;
             if run {
                 value += 18;
             }
-            if index == 0 || chars[index - 1].is_whitespace() {
+            if starts_word {
                 value += 24;
             }
-            at += 1;
             run = true;
         } else {
             run = false;
         }
     }
-    (at == query.len()).then_some(value)
+    wanted.peek().is_none().then_some(value)
 }
 
 fn fold(text: &str) -> String {
@@ -1244,13 +1265,13 @@ mod tests {
     use super::*;
 
     fn app(title: &str) -> Entry {
-        Entry {
-            title: title.to_owned(),
-            aliases: Vec::new(),
-            target: title.to_owned(),
-            kind: Kind::App,
-            detail: String::new(),
-        }
+        Entry::new(
+            title.to_owned(),
+            Vec::new(),
+            title.to_owned(),
+            Kind::App,
+            String::new(),
+        )
     }
 
     #[test]

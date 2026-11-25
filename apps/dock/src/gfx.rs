@@ -1012,6 +1012,37 @@ impl Gfx {
         )
     }
 
+    /// Width `text_brush_colored` would give an unfitted line, from the layout
+    /// metrics alone (no bitmap).
+    pub fn text_width(&self, text: &str, scale: f32, font_size: f32, bold: bool) -> Result<f32> {
+        let utf16: Vec<u16> = text.encode_utf16().collect();
+        let weight = if bold {
+            DWRITE_FONT_WEIGHT_SEMI_BOLD
+        } else {
+            DWRITE_FONT_WEIGHT_NORMAL
+        };
+        // SAFETY: Strings and structures passed to each call remain alive for its duration.
+        let metrics = unsafe {
+            let format = self.dwrite.CreateTextFormat(
+                text_font(),
+                None,
+                weight,
+                DWRITE_FONT_STYLE_NORMAL,
+                DWRITE_FONT_STRETCH_NORMAL,
+                font_size * scale,
+                w!(""),
+            )?;
+            set_text_direction(&format, text)?;
+            let layout = self
+                .dwrite
+                .CreateTextLayout(&utf16, &format, 4096.0, 256.0)?;
+            let mut metrics = DWRITE_TEXT_METRICS::default();
+            layout.GetMetrics(&mut metrics)?;
+            metrics
+        };
+        Ok(metrics.width.ceil().max(1.0))
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn draw_text_brush(
         &self,
