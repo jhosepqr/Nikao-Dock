@@ -12,7 +12,8 @@
 //!   mouse input. It expands while the cursor is over the dock (hysteresis).
 //!
 //! While the dock is running, the Windows taskbar is hidden and the dock is
-//! registered as an AppBar, reserving a strip along its configured screen edge.
+//! registered as an AppBar for shell notifications. It overlays the bottom edge
+//! and can reserve a strip when positioned on a side.
 
 mod activation;
 mod assets;
@@ -568,7 +569,7 @@ struct Stage {
     edge_zone: RECT,
     /// How far the dock slides toward its screen edge to hide completely.
     slide_distance: f32,
-    /// Depth of the strip the resting dock reserves: itself plus its margin
+    /// Depth available for a side reservation: the resting dock plus its margin
     /// on both sides, so windows end one margin short of it.
     reserve: i32,
 }

@@ -361,13 +361,12 @@ impl App {
     }
 
     /// Hides the dock while an app window maximized on its monitor is in
-    /// front, and releases the reserved strip so that window fills the screen.
+    /// front. Only a side dock needs to change its work-area reservation.
     ///
     /// Only an app window the dock lists, or the desktop itself, can end that
     /// state. The taskbar and its hidden-icons flyout, our own panels and
     /// menu bar, Start and other shell pop-ups, and the moments with no
-    /// foreground window at all keep it: flipping it there would bring the
-    /// reserved strip back and Windows would shrink every maximized window.
+    /// foreground window at all keep the previous visibility.
     fn update_maximized(&mut self, front: isize) -> Result<()> {
         let on_dock_screen = self
             .stage
@@ -392,18 +391,14 @@ impl App {
             if maximized { "se oculta" } else { "vuelve" },
             tracker::foreground_class()
         ));
-        // The slide runs on the compositor, so the synchronous call to
-        // Explorer cannot stall it. Hiding, the dock starts gliding away
-        // before the window grows under it; showing, the windows make room
-        // first and the dock glides into it.
-        if maximized {
-            self.hide_if_unused()?;
-            self.render()?;
+        let side_dock = self.position().is_vertical();
+        if side_dock && !maximized {
             self.reserve_space();
-        } else {
+        }
+        self.hide_if_unused()?;
+        self.render()?;
+        if side_dock && maximized {
             self.reserve_space();
-            self.hide_if_unused()?;
-            self.render()?;
         }
         Ok(())
     }

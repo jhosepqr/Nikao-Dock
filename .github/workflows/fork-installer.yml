@@ -142,7 +142,7 @@ jobs:
             exit 0
           }
           @(
-            'Instalador sin firmar de main. Tarjeta de batería compacta, controles con reflejos Liquid Glass y botón de energía nativo. Ajustes en el inicio del Efecto genio y la apertura de iconos ocultos.'
+            'Instalador sin firmar de main. El dock inferior se superpone a las ventanas. Al cambiar de aplicación, las ventanas maximizadas conservan su altura y la fila inferior del escritorio queda disponible para los iconos.'
             ''
             'No se actualiza solo al Muelle oficial de crafter-station. La próxima compilación se instala a mano. No incluye latest.json.'
             ''

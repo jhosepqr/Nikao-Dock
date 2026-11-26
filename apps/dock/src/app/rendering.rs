@@ -26,6 +26,14 @@ use super::{
     place, window_id, window_of,
 };
 
+fn reserved_depth(edge: DockEdge, auto_hide: bool, maximized: bool, depth: i32) -> i32 {
+    if edge.is_vertical() && !auto_hide && !maximized {
+        depth
+    } else {
+        0
+    }
+}
+
 impl App {
     /// List of items: apps, recents, Downloads, and recycle bin, separated into
     /// sections as in macOS.
@@ -212,8 +220,7 @@ impl App {
         let side_growth = (magnifier.max_growth() / 2.0).ceil();
         let rise = (metrics.icon * (max_scale - 1.0)).ceil();
 
-        // Position relative to the screen, not the work area; the work area
-        // already excludes the strip reserved by the dock.
+        // Anchor to the physical screen edge even when another bar reserves space.
         let margin = px(FLOAT_MARGIN);
         let centred = span_start + ((length_room - dock.width) / 2.0).round();
         let (dock_x, dock_y) = match edge {
@@ -430,27 +437,25 @@ impl App {
         Ok(())
     }
 
-    /// Keeps windows one margin clear of the resting dock, as on macOS.
-    /// Auto-hide reserves nothing, and neither does a maximized window in
-    /// front: Windows then grows maximized windows over the hidden dock's
-    /// strip. `AppBar::reserve` calls Explorer only when the strip changes.
+    /// A bottom dock overlays the desktop. A side dock can reserve space
+    /// between itself and app windows.
     pub(super) fn reserve_space(&mut self) {
         let Some(stage) = &self.stage else {
             return;
         };
         let screen = stage.key.screen;
-        let (reservation, strip) = if self.config.auto_hide {
-            // Moving an auto-hidden dock must never change the destination
-            // monitor's work area.
-            (
-                primary_monitor().map_or(screen, |primary| primary.screen),
-                0,
-            )
-        } else if self.maximized_front {
-            (screen, 0)
+        let reservation = if self.config.auto_hide {
+            // An auto-hidden dock can move between monitors.
+            primary_monitor().map_or(screen, |primary| primary.screen)
         } else {
-            (screen, stage.reserve)
+            screen
         };
+        let strip = reserved_depth(
+            stage.key.edge,
+            self.config.auto_hide,
+            self.maximized_front,
+            stage.reserve,
+        );
         let side = match stage.key.edge {
             DockEdge::Bottom => Edge::Bottom,
             DockEdge::Left => Edge::Left,
@@ -638,5 +643,26 @@ impl App {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod reservation_tests {
+    use super::{DockEdge, reserved_depth};
+
+    #[test]
+    fn bottom_edge_stays_free_when_focus_or_visibility_changes() {
+        for auto_hide in [false, true] {
+            for maximized in [true, false] {
+                assert_eq!(
+                    reserved_depth(DockEdge::Bottom, auto_hide, maximized, 82),
+                    0
+                );
+                for side in [DockEdge::Left, DockEdge::Right] {
+                    let expected = if auto_hide || maximized { 0 } else { 82 };
+                    assert_eq!(reserved_depth(side, auto_hide, maximized, 82), expected);
+                }
+            }
+        }
     }
 }
