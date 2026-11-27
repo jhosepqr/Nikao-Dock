@@ -138,6 +138,7 @@ const PINS_CHANGED: u32 = WM_APP + 7;
 const ASSETS_READY: u32 = WM_APP + 8;
 /// The guard also checks graphics health while the scene is otherwise idle.
 pub(crate) const HEALTH_CHECK: u32 = WM_APP + 9;
+pub(crate) const REPAIR_TASKBAR: u32 = WM_APP + 11;
 const TASKBAR_PREFS_CHANGED: u32 = WM_APP + 10;
 
 /// Magnification range, in icons on either side of the cursor.

@@ -142,7 +142,7 @@ jobs:
             exit 0
           }
           @(
-            'Instalador sin firmar de main. El dock inferior se superpone a las ventanas. Al cambiar de aplicación, las ventanas maximizadas conservan su altura y la fila inferior del escritorio queda disponible para los iconos.'
+            'Instalador sin firmar de main. El dock recupera la barra de tareas si Explorer vuelve a mostrarla o si la interfaz responde después de un bloqueo.'
             ''
             'No se actualiza solo al Muelle oficial de crafter-station. La próxima compilación se instala a mano. No incluye latest.json.'
             ''

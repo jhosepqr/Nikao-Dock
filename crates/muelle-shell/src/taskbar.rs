@@ -122,6 +122,19 @@ pub fn is_hidden(hwnd: HWND) -> bool {
     taskbars().contains(&hwnd) && is_ghosted(hwnd)
 }
 
+/// Samples the taskbars once on a foreground change. Explorer can reset the
+/// alpha of an existing HWND without broadcasting TaskbarCreated.
+pub fn foreground_visibility(front: HWND) -> (bool, bool) {
+    let mut hidden_front = false;
+    let mut needs_repair = false;
+    for bar in taskbars() {
+        let hidden = is_ghosted(bar);
+        hidden_front |= bar == front && hidden;
+        needs_repair |= !hidden;
+    }
+    (hidden_front, needs_repair)
+}
+
 fn taskbars() -> Vec<HWND> {
     let mut found = Vec::new();
     // SAFETY: Read-only calls with valid static strings.

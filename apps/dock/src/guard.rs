@@ -226,7 +226,7 @@ fn watch(pid: u32, process: HANDLE, recovery: HANDLE) -> Result<bool> {
         if wait != WAIT_TIMEOUT {
             anyhow::bail!("el guardián no pudo esperar al dock: {wait:?}");
         }
-        if health.observe(ui_responds(pid)) {
+        if health.observe(ui_responds(pid, health.restored)) {
             muelle_shell::log::line(
                 "la interfaz dejó de responder; se restaura la barra de Windows",
             );
@@ -266,7 +266,7 @@ fn stop_dock(pid: u32, process: HANDLE, timeout: u32) -> Result<bool> {
     }
 }
 
-fn ui_responds(pid: u32) -> bool {
+fn ui_responds(pid: u32, restored: bool) -> bool {
     // SAFETY: The scalar-only health message runs on the dock's UI thread.
     // The timeout bounds an unresponsive peer; no COM call crosses threads.
     unsafe {
@@ -278,7 +278,7 @@ fn ui_responds(pid: u32) -> bool {
         if owner != pid {
             return false;
         }
-        SendMessageTimeoutW(
+        let responsive = SendMessageTimeoutW(
             window,
             crate::app::HEALTH_CHECK,
             WPARAM(0),
@@ -287,7 +287,18 @@ fn ui_responds(pid: u32) -> bool {
             PING_TIMEOUT_MS,
             None,
         )
-        .0 != 0
+        .0 != 0;
+        if responsive && restored {
+            // Queue recovery only after the UI has answered a bounded probe.
+            return PostMessageW(
+                Some(window),
+                crate::app::REPAIR_TASKBAR,
+                WPARAM(0),
+                LPARAM(0),
+            )
+            .is_ok();
+        }
+        responsive
     }
 }
 

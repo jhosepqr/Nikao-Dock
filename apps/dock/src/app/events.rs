@@ -60,9 +60,21 @@ pub(super) unsafe extern "system" fn on_win_event(
         // its thumbnail and skipped the genie on its next minimize.
         with_app("restaurar", App::sync);
     } else if event == EVENT_SYSTEM_FOREGROUND {
+        let (hidden_taskbar, needs_repair) = taskbar::foreground_visibility(hwnd);
+        if needs_repair {
+            with_app("visibilidad de la barra de Windows", |app| {
+                if app.taskbar_worker.is_none() {
+                    muelle_shell::log::line(
+                        "barra de Windows visible al cambiar el foco; se vuelve a ocultar",
+                    );
+                    app.request_taskbar(false)?;
+                }
+                Ok(())
+            });
+        }
         if tracker::is_task_switcher(hwnd) {
             with_app("Alt+Tab", App::task_switcher_opened);
-        } else if taskbar::is_hidden(hwnd)
+        } else if hidden_taskbar
             && !launcher::opening_hidden_icons()
             && !launcher::hidden_icons_open()
         {
@@ -414,6 +426,10 @@ pub(super) unsafe extern "system" fn wndproc(
         HEALTH_CHECK => with_app("estado del dispositivo gráfico", |app| {
             app.gfx.check_device()
         }),
+        super::REPAIR_TASKBAR => with_app("recuperar barra tras bloqueo", |app| {
+            muelle_shell::log::line("interfaz recuperada; se vuelve a ocultar la barra de Windows");
+            app.request_taskbar(false)
+        }),
         WM_MOUSEACTIVATE => {
             let mouse = ((l.0 >> 16) & 0xFFFF) as u32;
             let activate = matches!(mouse, WM_LBUTTONDOWN | WM_MBUTTONDOWN)
@@ -599,7 +615,7 @@ pub(super) unsafe extern "system" fn wndproc(
         TASKBAR_TAKEN => with_app("reserva de espacio", |app| {
             app.taskbar_taken(w.0 != 0, l.0 != 0)
         }),
-        WM_POWERBROADCAST if w.0 == PBT_APMRESUMEAUTOMATIC => {
+        WM_POWERBROADCAST if w.0 == PBT_APMRESUMEAUTOMATIC && hwnd == main_window() => {
             with_app("reanudar reserva de espacio", |app| {
                 app.taskbar_attempts = 0;
                 Ok(())
@@ -613,7 +629,7 @@ pub(super) unsafe extern "system" fn wndproc(
             });
         }
         _ if CONFIG_CHANGED.get() == Some(&msg) => with_app("ajustes", App::reload_config),
-        _ if TASKBAR_CREATED.get() == Some(&msg) => {
+        _ if TASKBAR_CREATED.get() == Some(&msg) && hwnd == main_window() => {
             with_app("Explorer reiniciado", |app| {
                 app.taskbar_attempts = 0;
                 Ok(())
