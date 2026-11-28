@@ -9,3 +9,4 @@ pub mod magnify;
 pub mod preview;
 pub mod roster;
 pub mod spring;
+pub mod verse;

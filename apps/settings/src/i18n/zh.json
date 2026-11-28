@@ -62,6 +62,8 @@
   "menuBarAutoHideHint": "将指针停在屏幕顶部边缘以显示。",
   "menuBarMusic": "显示正在播放的内容",
   "menuBarMusicHint": "音乐和视频播放控制。音乐和 AI 均关闭时，灵动岛隐藏。",
+  "menuBarVerse": "每日经文",
+  "menuBarVerseHint": "每天更换一节鼓励人心的经文（西班牙语 NVI），显示在应用名称旁。",
   "aiUsage": "AI 用量",
   "islandStyle": "指示器样式",
   "islandStyleHint": "选择居中的刘海或状态指示器旁的紧凑气泡。",

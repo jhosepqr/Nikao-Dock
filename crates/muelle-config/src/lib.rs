@@ -103,6 +103,8 @@ pub struct Config {
     pub menu_bar_music: bool,
     /// Visual style and placement of the music and AI usage island in the menu bar.
     pub menu_bar_island_style: IslandStyle,
+    /// A verse of encouragement in the menu bar, a different one each day.
+    pub menu_bar_verse: bool,
     /// Opt-in peripheral monitoring. Off means no accessory reader or queries.
     pub accessory_battery: bool,
     /// The dot under apps that have windows open.
@@ -413,6 +415,7 @@ impl Default for Config {
             ai_usage: true,
             menu_bar_music: true,
             menu_bar_island_style: IslandStyle::Notch,
+            menu_bar_verse: true,
             accessory_battery: false,
             show_indicators: true,
             show_recents: true,
@@ -1005,6 +1008,7 @@ mod tests {
         assert!(config.auto_update);
         assert!(config.ai_usage);
         assert!(config.menu_bar_music);
+        assert!(config.menu_bar_verse);
         assert!(!config.accessory_battery);
         assert!(!config.show_minimized);
         assert!(config.jump_lists);

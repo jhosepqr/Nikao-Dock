@@ -40,6 +40,7 @@ export interface Config {
   aiUsage: boolean;
   menuBarMusic: boolean;
   menuBarIslandStyle: IslandStyle;
+  menuBarVerse: boolean;
   accessoryBattery: boolean;
   showIndicators: boolean;
   showRecents: boolean;

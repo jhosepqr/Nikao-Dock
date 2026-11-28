@@ -62,6 +62,8 @@
   "menuBarAutoHideHint": "Rest the pointer at the top edge to reveal it.",
   "menuBarMusic": "Show what's playing",
   "menuBarMusicHint": "Music and video, with controls. With music and AI off, the island disappears.",
+  "menuBarVerse": "Verse of the day",
+  "menuBarVerseHint": "An encouraging Bible verse (Spanish NVI) that changes every day, beside the app name.",
   "aiUsage": "AI usage",
   "islandStyle": "Indicator style",
   "islandStyleHint": "Choose between the centered notch or a compact bubble next to the status indicators.",

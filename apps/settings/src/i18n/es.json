@@ -62,6 +62,8 @@
   "menuBarAutoHideHint": "Deja el puntero en el borde superior para mostrarla.",
   "menuBarMusic": "Mostrar lo que se reproduce",
   "menuBarMusicHint": "Música y vídeo, con controles. Sin música ni IA, la isla desaparece.",
+  "menuBarVerse": "Versículo del día",
+  "menuBarVerseHint": "Un versículo de ánimo (NVI) que cambia cada día, junto al nombre de la app.",
   "aiUsage": "Uso de IA",
   "islandStyle": "Estilo del indicador",
   "islandStyleHint": "Elige entre la muesca centrada o una burbuja compacta junto a los indicadores de estado.",

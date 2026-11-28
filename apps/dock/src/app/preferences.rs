@@ -318,6 +318,7 @@ impl App {
     pub(super) fn apply_menu_bar_setting(&mut self) {
         let widgets = MenuBarWidgets {
             island_style: self.config.menu_bar_island_style,
+            daily_verse: self.config.menu_bar_verse,
         };
         if !self.config.menu_bar {
             self.menubar = None;

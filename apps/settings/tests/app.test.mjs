@@ -32,7 +32,7 @@ const base = {
   showTrash: true, pinExplorer: true,
   showDownloads: true,
   showOtherWorkspaces: false,
-  menuBarIslandStyle: "notch", checkUpdates: false, appearance: "glass",
+  menuBarIslandStyle: "notch", menuBarVerse: true, checkUpdates: false, appearance: "glass",
   glassTransparency: 90, glassBlur: 45, searchMode: "spotlight",
   pinned: [], recent: [], shortcutsFolder: null,
 };
@@ -233,7 +233,8 @@ test("retired Windows status-item overrides expose no controls and create no sav
     try {
       const controls = [...elements(view.body())].filter((node) => "checked" in node.props);
       assert.deepEqual(controls.map((node) => node.props.label), [texts[language].menuBarShow,
-        texts[language].menuBarAutoHide, texts[language].menuBarMusic, texts[language].aiUsage,
+        texts[language].menuBarAutoHide, texts[language].menuBarMusic,
+        texts[language].menuBarVerse, texts[language].aiUsage,
         texts[language].accessoryBattery]);
       view.fire(60);
       await settle();

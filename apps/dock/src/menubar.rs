@@ -84,6 +84,8 @@ use crate::{
     },
 };
 
+mod verse;
+
 // Logical pixels.
 const HEIGHT: f32 = 28.0;
 const SIDE_MARGIN: f32 = 14.0;
@@ -187,12 +189,16 @@ enum Action {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MenuBarWidgets {
     pub island_style: IslandStyle,
+    /// A verse of encouragement, a different one each day, beside the name
+    /// of the app in front.
+    pub daily_verse: bool,
 }
 
 impl Default for MenuBarWidgets {
     fn default() -> Self {
         Self {
             island_style: IslandStyle::Notch,
+            daily_verse: true,
         }
     }
 }
@@ -242,6 +248,8 @@ struct Look {
     usage_refreshing: bool,
     track: Option<Track>,
     volume_expanded: bool,
+    /// Today's verse, when the bar shows one. Changes at midnight.
+    verse: Option<muelle_core::verse::Verse>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -546,6 +554,9 @@ pub struct MenuBar {
     /// Energy saver on or off arrives as `WM_POWERBROADCAST`; glass follows.
     _saver_watch: muelle_shell::power::SaverWatch,
     audio: Option<AudioWatch>,
+    /// Kept across redraws so the clock and status changes do not cut the
+    /// verse short; rebuilt only when it or its place changes.
+    verse: Option<verse::Strip>,
 }
 
 unsafe extern "system" fn bar_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LRESULT {
@@ -1215,6 +1226,7 @@ impl MenuBar {
             search_watch: status::watch_search_settings(hwnd.0 as isize, REGISTRY_CHANGED),
             _saver_watch: muelle_shell::power::SaverWatch::new(hwnd.0 as isize),
             audio: AudioWatch::new(hwnd.0 as isize, AUDIO_CHANGED),
+            verse: None,
         };
         AUDIO_TICK_PENDING.store(false, Ordering::Relaxed);
         bar.update_status();
@@ -1381,7 +1393,11 @@ impl MenuBar {
             // SAFETY: `track` is a valid structure with its size initialized.
             unsafe { TrackMouseEvent(&mut track)? };
         }
-        self.refresh(gfx)
+        self.refresh(gfx)?;
+        if inside {
+            self.replay_verse()?;
+        }
+        Ok(())
     }
 
     fn reveal_lift(&self) -> f32 {
@@ -1724,7 +1740,52 @@ impl MenuBar {
             self.restart_accessories(gfx)?;
         }
         self.schedule_next_minute();
-        self.refresh(gfx)
+        self.refresh(gfx)?;
+        self.replay_verse()
+    }
+
+    /// Lays out the verse of the day in the free space between the name of
+    /// the app in front and the island, keeping it (and its animation) when
+    /// nothing it depends on changed. The space starts where the longest
+    /// app name would end, so switching apps never moves it.
+    fn sync_verse(
+        &mut self,
+        gfx: &Gfx,
+        look: &Look,
+        width: f32,
+        height: f32,
+        status_left: f32,
+    ) -> Result<()> {
+        let Some(today) = look.verse else {
+            self.verse = None;
+            return Ok(());
+        };
+        let px = |logical: f32| (logical * look.scale).round();
+        let gap = px(14.0);
+        let mut right = (width / 2.0 - px(ISLAND_SINGLE_WIDTH) / 2.0).min(status_left);
+        if self.triggers_span.width() > 0.0 {
+            right = right.min(self.triggers_span.left);
+        }
+        let region = Span {
+            left: px(SIDE_MARGIN) + px(220.0).min(width * 0.22) + gap,
+            right: right - gap,
+        };
+        let key = verse::Key::new(look, today, region, height);
+        if self.verse.as_ref().is_some_and(|strip| strip.key == key) {
+            return Ok(());
+        }
+        self.verse = verse::Strip::build(gfx, look, key, region)?;
+        Ok(())
+    }
+
+    /// Plays the verse again once the last time has finished, while the bar
+    /// is on screen. Called on the minute and when the bar is revealed.
+    fn replay_verse(&mut self) -> Result<()> {
+        let shown = self.visible && (!self.auto_hide || self.revealed);
+        match &mut self.verse {
+            Some(strip) if shown && strip.finished() => strip.restart(),
+            _ => Ok(()),
+        }
     }
 
     /// Ordinary audio notifications do not requery network, registry, providers
@@ -1996,6 +2057,12 @@ impl MenuBar {
             usage_refreshing: self.usage.as_ref().is_some_and(UsageMonitor::is_refreshing),
             track,
             volume_expanded: self.volume_expanded,
+            verse: self.widgets.daily_verse.then(|| {
+                use chrono::Datelike;
+                muelle_core::verse::of_day(i64::from(
+                    chrono::Local::now().date_naive().num_days_from_ce(),
+                ))
+            }),
         };
         self.apply_look(gfx, look)
     }
@@ -2290,6 +2357,7 @@ impl MenuBar {
         self.triggers_span = Span::default();
         self.panel_span = Span::default();
         self.draw_island(gfx, look, &layers, width, height, left_end, right)?;
+        self.sync_verse(gfx, look, width, height, right)?;
         if let Some(drag) = self.volume_drag {
             let new_span = self.island_hits.iter().find_map(|hit| match hit.action {
                 IslandAction::Volume(span) => Some(span),
@@ -2306,6 +2374,9 @@ impl MenuBar {
         let contents = self.surface.Children()?;
         contents.RemoveAll()?;
         contents.InsertAtTop(&root)?;
+        if let Some(strip) = &self.verse {
+            contents.InsertAtTop(&strip.visual)?;
+        }
         self.visual_height = if self.panel_span.width() > 0.0 {
             visual_height
         } else {

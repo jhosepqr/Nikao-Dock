@@ -62,6 +62,8 @@
   "menuBarAutoHideHint": "Laissez le pointeur sur le bord supérieur pour l'afficher.",
   "menuBarMusic": "Afficher la lecture en cours",
   "menuBarMusicHint": "Musique et vidéo, avec commandes. Sans musique ni IA, l'îlot disparaît.",
+  "menuBarVerse": "Verset du jour",
+  "menuBarVerseHint": "Un verset d'encouragement (NVI espagnole) qui change chaque jour, à côté du nom de l'app.",
   "aiUsage": "Utilisation de l'IA",
   "islandStyle": "Style de l'indicateur",
   "islandStyleHint": "Choisissez entre l'encoche centrée ou une bulle compacte à côté des indicateurs d'état.",

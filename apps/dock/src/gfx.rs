@@ -38,13 +38,14 @@ use windows::{
                 D3D11_SDK_VERSION, D3D11CreateDevice, ID3D11Device,
             },
             DirectWrite::{
-                DWRITE_FACTORY_TYPE_SHARED, DWRITE_FONT_STRETCH_NORMAL, DWRITE_FONT_STYLE_NORMAL,
-                DWRITE_FONT_WEIGHT_MEDIUM, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_WEIGHT_SEMI_BOLD,
-                DWRITE_MEASURING_MODE_NATURAL, DWRITE_PARAGRAPH_ALIGNMENT_CENTER,
-                DWRITE_READING_DIRECTION_RIGHT_TO_LEFT, DWRITE_TEXT_ALIGNMENT_CENTER,
-                DWRITE_TEXT_ALIGNMENT_TRAILING, DWRITE_TEXT_METRICS, DWRITE_TRIMMING,
-                DWRITE_TRIMMING_GRANULARITY_CHARACTER, DWRITE_WORD_WRAPPING_NO_WRAP,
-                DWriteCreateFactory, IDWriteFactory, IDWriteTextFormat, IDWriteTextLayout,
+                DWRITE_FACTORY_TYPE_SHARED, DWRITE_FONT_STRETCH_NORMAL, DWRITE_FONT_STYLE_ITALIC,
+                DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_WEIGHT_MEDIUM, DWRITE_FONT_WEIGHT_NORMAL,
+                DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_MEASURING_MODE_NATURAL,
+                DWRITE_PARAGRAPH_ALIGNMENT_CENTER, DWRITE_READING_DIRECTION_RIGHT_TO_LEFT,
+                DWRITE_TEXT_ALIGNMENT_CENTER, DWRITE_TEXT_ALIGNMENT_TRAILING, DWRITE_TEXT_METRICS,
+                DWRITE_TEXT_RANGE, DWRITE_TRIMMING, DWRITE_TRIMMING_GRANULARITY_CHARACTER,
+                DWRITE_WORD_WRAPPING_NO_WRAP, DWriteCreateFactory, IDWriteFactory,
+                IDWriteTextFormat, IDWriteTextLayout,
             },
             Dxgi::{Common::DXGI_FORMAT_B8G8R8A8_UNORM, IDXGIDevice},
         },
@@ -1041,6 +1042,107 @@ impl Gfx {
             metrics
         };
         Ok(metrics.width.ceil().max(1.0))
+    }
+
+    /// One phrase of the verse of the day: the words in italics and, after
+    /// them, the reference (book, chapter and verse) in semibold, a little
+    /// fainter. A single line; `text` may be empty for the reference alone.
+    fn verse_layout(
+        &self,
+        text: &str,
+        reference: Option<&str>,
+        scale: f32,
+    ) -> Result<(
+        IDWriteTextLayout,
+        DWRITE_TEXT_METRICS,
+        Option<DWRITE_TEXT_RANGE>,
+    )> {
+        let line = match reference {
+            Some(reference) if !text.is_empty() => format!("{text}\u{2003}{reference}"),
+            Some(reference) => reference.to_owned(),
+            None => text.to_owned(),
+        };
+        let utf16: Vec<u16> = line.encode_utf16().collect();
+        let range = reference.map(|reference| {
+            let length = reference.encode_utf16().count() as u32;
+            DWRITE_TEXT_RANGE {
+                startPosition: utf16.len() as u32 - length,
+                length,
+            }
+        });
+        // SAFETY: Strings and structures passed to each call remain alive for its duration.
+        unsafe {
+            let format = self.dwrite.CreateTextFormat(
+                text_font(),
+                None,
+                DWRITE_FONT_WEIGHT_NORMAL,
+                DWRITE_FONT_STYLE_ITALIC,
+                DWRITE_FONT_STRETCH_NORMAL,
+                12.5 * scale,
+                w!(""),
+            )?;
+            let layout = self
+                .dwrite
+                .CreateTextLayout(&utf16, &format, 4096.0, 256.0)?;
+            layout.SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP)?;
+            if let Some(range) = range {
+                layout.SetFontStyle(DWRITE_FONT_STYLE_NORMAL, range)?;
+                layout.SetFontWeight(DWRITE_FONT_WEIGHT_SEMI_BOLD, range)?;
+            }
+            let mut metrics = DWRITE_TEXT_METRICS::default();
+            layout.GetMetrics(&mut metrics)?;
+            Ok((layout, metrics, range))
+        }
+    }
+
+    /// Width `verse_brush` would give, from the layout alone (no bitmap).
+    pub fn verse_width(&self, text: &str, reference: Option<&str>, scale: f32) -> Result<f32> {
+        let (_, metrics, _) = self.verse_layout(text, reference, scale)?;
+        // Italic letters lean past the advance width; leave them room.
+        Ok((metrics.widthIncludingTrailingWhitespace + 2.0 * scale)
+            .ceil()
+            .max(1.0))
+    }
+
+    pub fn verse_brush(
+        &self,
+        text: &str,
+        reference: Option<&str>,
+        scale: f32,
+        ink: Ink,
+    ) -> Result<LabelBrush> {
+        let (layout, metrics, range) = self.verse_layout(text, reference, scale)?;
+        let width = (metrics.widthIncludingTrailingWhitespace + 2.0 * scale)
+            .ceil()
+            .max(1.0);
+        let height = metrics.height.ceil().max(1.0);
+        let color = ink.color();
+        let faint = D2D1_COLOR_F {
+            a: color.a * 0.72,
+            ..color
+        };
+        let brush = self.draw(width as u32, height as u32, |dc| {
+            // SAFETY: The brushes and layout live for the drawing call.
+            unsafe {
+                if let Some(range) = range {
+                    let reference = dc.CreateSolidColorBrush(&faint, None)?;
+                    layout.SetDrawingEffect(&reference, range)?;
+                }
+                let ink = dc.CreateSolidColorBrush(&color, None)?;
+                dc.DrawTextLayout(
+                    Vector2 { X: 0.0, Y: 0.0 },
+                    &layout,
+                    &ink,
+                    D2D1_DRAW_TEXT_OPTIONS_NONE,
+                );
+            }
+            Ok(())
+        })?;
+        Ok(LabelBrush {
+            brush,
+            width,
+            height,
+        })
     }
 
     #[allow(clippy::too_many_arguments)]

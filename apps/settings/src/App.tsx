@@ -646,6 +646,13 @@ export function App() {
                     onChange={(menuBarMusic) => update({ menuBarMusic })}
                   />
                 </SubRow>
+                <SubRow label={t.menuBarVerse} hint={t.menuBarVerseHint} open={config.menuBar}>
+                  <Toggle
+                    label={t.menuBarVerse}
+                    checked={config.menuBarVerse}
+                    onChange={(menuBarVerse) => update({ menuBarVerse })}
+                  />
+                </SubRow>
                 <SubRow label={t.aiUsage} hint={t.aiUsageHint} open={config.menuBar}>
                   <Toggle
                     label={t.aiUsage}

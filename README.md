@@ -50,6 +50,9 @@ los paneles están cerrados.
   sin abrir los ajustes rápidos de Windows.
 - **Barra superior** — Reloj, red, volumen, isla de música/IA y más; se puede
   ocultar al borde.
+- **Versículo del día** — Un versículo de ánimo distinto cada día, en una
+  cápsula de vidrio junto al nombre de la app: aparece letra a letra y se
+  difumina con su cita. Se apaga en Ajustes.
 - **Bajo consumo en reposo** — Sin timers ni redibujado por frame mientras los
   flyouts están cerrados; el trabajo queda en el compositor de Windows.
 
@@ -141,6 +144,16 @@ $env:MUELLE_FORK_BUILD = "1"
 
 MIT — ver [LICENSE](LICENSE). El aviso de copyright de Crafter Station /
 contribuyentes de Muelle se mantiene en el archivo de licencia.
+
+**Textos bíblicos.** El versículo del día usa la Nueva Versión Internacional
+(NVI): *Texto bíblico tomado de la Santa Biblia, Nueva Versión Internacional®
+NVI® © 1986, 1999, 2015 por Biblica, Inc.® Usado con permiso. Reservados todos
+los derechos en todo el mundo.* La NVI (como la NTV, de Tyndale) tiene derechos
+de autor y no está bajo la licencia MIT; Biblica permite citar hasta 500
+versículos sin permiso escrito, y la app incluye 366. La Reina-Valera 1909 es de
+dominio público; el script que genera los versículos
+([`scripts/biblia/extraer_versiculos.py`](scripts/biblia/extraer_versiculos.py))
+lee el mismo formato para cualquiera de las dos.
 
 ---
 
