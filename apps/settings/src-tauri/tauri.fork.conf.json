@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "version": "0.1.23-glass.5",
+  "version": "0.1.23-glass.6",
   "plugins": {
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEJBNjBGQ0NBMjdBNjI1MUEKUldRYUphWW55dnhndW16SnNxU2NVd2k5ZE44NFpOM0hMWHRQV3ZicFk1dFB4b01MaVgveEJMVVMK",

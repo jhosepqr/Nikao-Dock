@@ -50,9 +50,9 @@ los paneles están cerrados.
   sin abrir los ajustes rápidos de Windows.
 - **Barra superior** — Reloj, red, volumen, isla de música/IA y más; se puede
   ocultar al borde.
-- **Versículo del día** — Un versículo de ánimo distinto cada día, en una
-  cápsula de vidrio junto al nombre de la app: aparece letra a letra y se
-  difumina con su cita. Se apaga en Ajustes.
+- **Versículo del día** — Un versículo de ánimo distinto cada día, escrito en
+  la barra junto al nombre de la app: pasa de derecha a izquierda con su cita,
+  apareciendo y difuminándose en los bordes. Se apaga en Ajustes.
 - **Bajo consumo en reposo** — Sin timers ni redibujado por frame mientras los
   flyouts están cerrados; el trabajo queda en el compositor de Windows.
 
@@ -78,9 +78,9 @@ Todavía son marcadores hasta que se publiquen capturas reales:
 
 1. Andá a [Releases](https://github.com/jhosepqr/Nikao-Dock/releases) y bajá
    **Nikao-Dock-Setup.exe** de la pre-release
-   [`v0.1.23-glass.5`](https://github.com/jhosepqr/Nikao-Dock/releases/tag/v0.1.23-glass.5)
+   [`v0.1.23-glass.6`](https://github.com/jhosepqr/Nikao-Dock/releases/tag/v0.1.23-glass.6)
    (enlace directo al
-   [instalador](https://github.com/jhosepqr/Nikao-Dock/releases/download/v0.1.23-glass.5/Nikao-Dock-Setup.exe)).
+   [instalador](https://github.com/jhosepqr/Nikao-Dock/releases/download/v0.1.23-glass.6/Nikao-Dock-Setup.exe)).
    GitHub no redirige `/releases/latest` a pre-releases.
 2. **SmartScreen:** si Windows dice que protegió tu PC, elegí **Más información
    → Ejecutar de todas formas** (el instalador del fork no está firmado).

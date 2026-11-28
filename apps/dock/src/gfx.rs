@@ -1044,9 +1044,9 @@ impl Gfx {
         Ok(metrics.width.ceil().max(1.0))
     }
 
-    /// One phrase of the verse of the day: the words in italics and, after
+    /// The verse of the day on one line: the words in italics and, after
     /// them, the reference (book, chapter and verse) in semibold, a little
-    /// fainter. A single line; `text` may be empty for the reference alone.
+    /// fainter.
     fn verse_layout(
         &self,
         text: &str,
@@ -1081,9 +1081,10 @@ impl Gfx {
                 12.5 * scale,
                 w!(""),
             )?;
+            // One line, however long: the menu bar scrolls it.
             let layout = self
                 .dwrite
-                .CreateTextLayout(&utf16, &format, 4096.0, 256.0)?;
+                .CreateTextLayout(&utf16, &format, 16384.0, 256.0)?;
             layout.SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP)?;
             if let Some(range) = range {
                 layout.SetFontStyle(DWRITE_FONT_STYLE_NORMAL, range)?;
@@ -1093,15 +1094,6 @@ impl Gfx {
             layout.GetMetrics(&mut metrics)?;
             Ok((layout, metrics, range))
         }
-    }
-
-    /// Width `verse_brush` would give, from the layout alone (no bitmap).
-    pub fn verse_width(&self, text: &str, reference: Option<&str>, scale: f32) -> Result<f32> {
-        let (_, metrics, _) = self.verse_layout(text, reference, scale)?;
-        // Italic letters lean past the advance width; leave them room.
-        Ok((metrics.widthIncludingTrailingWhitespace + 2.0 * scale)
-            .ceil()
-            .max(1.0))
     }
 
     pub fn verse_brush(

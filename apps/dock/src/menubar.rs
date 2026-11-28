@@ -100,6 +100,8 @@ const AUDIO_TICK: u32 = WM_APP + 33;
 const BLUETOOTH_CHANGED: u32 = WM_APP + 34;
 const VOLUME_TIMER: usize = 4;
 const PROGRESS_TIMER: usize = 5;
+/// The verse of the day has gone by; start the next pass.
+const VERSE_TIMER: usize = 6;
 const ACCESSORIES_CHANGED: u32 = WM_APP + 30;
 
 const CLOCK_TIMER: usize = 1;
@@ -592,6 +594,7 @@ unsafe extern "system" fn bar_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -
         WM_TIMER if w.0 == POINTER_TIMER => app::menu_bar_check_pointer(),
         WM_TIMER if w.0 == VOLUME_TIMER => app::menu_bar_volume_flush(),
         WM_TIMER if w.0 == PROGRESS_TIMER => app::menu_bar_progress_tick(),
+        WM_TIMER if w.0 == VERSE_TIMER => app::menu_bar_verse_tick(),
         WM_CAPTURECHANGED => {
             // Avoid reentering the app borrow inside Set/ReleaseCapture.
             unsafe {
@@ -1775,16 +1778,45 @@ impl MenuBar {
             return Ok(());
         }
         self.verse = verse::Strip::build(gfx, look, key, region)?;
+        self.play_verse()
+    }
+
+    /// Starts a pass of the verse while the bar is on screen, and wakes up
+    /// once it has gone by to start the next one.
+    fn play_verse(&mut self) -> Result<()> {
+        if !self.visible || (self.auto_hide && !self.revealed) {
+            return Ok(());
+        }
+        let Some(strip) = &mut self.verse else {
+            return Ok(());
+        };
+        strip.play()?;
+        let due = (strip.pass + verse::PAUSE)
+            .as_millis()
+            .min(u128::from(u32::MAX)) as u32;
+        // SAFETY: A timer on our own window; the same id replaces it.
+        unsafe {
+            SetTimer(Some(self.hwnd), VERSE_TIMER, due, None);
+        }
         Ok(())
     }
 
-    /// Plays the verse again once the last time has finished, while the bar
-    /// is on screen. Called on the minute and when the bar is revealed.
+    /// The last pass has gone by.
+    pub fn verse_tick(&mut self) -> Result<()> {
+        // SAFETY: Stopping our own window's timer; `play_verse` sets it again.
+        unsafe {
+            let _ = KillTimer(Some(self.hwnd), VERSE_TIMER);
+        }
+        self.play_verse()
+    }
+
+    /// Picks the verse up again after the bar was hidden while a pass ended:
+    /// on the minute and when the bar is revealed.
     fn replay_verse(&mut self) -> Result<()> {
-        let shown = self.visible && (!self.auto_hide || self.revealed);
-        match &mut self.verse {
-            Some(strip) if shown && strip.finished() => strip.restart(),
-            _ => Ok(()),
+        if self.verse.as_ref().is_some_and(verse::Strip::idle) {
+            self.play_verse()
+        } else {
+            Ok(())
         }
     }
 

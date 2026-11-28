@@ -72,9 +72,9 @@ below are placeholders until real captures are added:
 
 1. Open [Releases](https://github.com/jhosepqr/Nikao-Dock/releases) and download
    **Nikao-Dock-Setup.exe** from pre-release
-   [`v0.1.23-glass.5`](https://github.com/jhosepqr/Nikao-Dock/releases/tag/v0.1.23-glass.5)
+   [`v0.1.23-glass.6`](https://github.com/jhosepqr/Nikao-Dock/releases/tag/v0.1.23-glass.6)
    ([direct
-   link](https://github.com/jhosepqr/Nikao-Dock/releases/download/v0.1.23-glass.5/Nikao-Dock-Setup.exe)).
+   link](https://github.com/jhosepqr/Nikao-Dock/releases/download/v0.1.23-glass.6/Nikao-Dock-Setup.exe)).
    GitHub does not point `/releases/latest` at pre-releases.
 2. **SmartScreen:** if Windows protected your PC, choose **More info → Run
    anyway** (this fork installer is unsigned).

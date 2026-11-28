@@ -168,6 +168,13 @@ pub fn menu_bar_progress_tick() {
     });
 }
 
+pub fn menu_bar_verse_tick() {
+    with_app("versículo del día", |app| match &mut app.menubar {
+        Some(bar) => bar.verse_tick(),
+        None => Ok(()),
+    });
+}
+
 pub fn menu_bar_media_changed() {
     with_app("reproducción", |app| match &mut app.menubar {
         Some(bar) => bar.media_changed(&app.gfx),
